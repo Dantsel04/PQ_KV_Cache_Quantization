@@ -3,9 +3,11 @@
 ## Run Status
 
 The GPU pipeline is in progress. Environment/model setup, held-out calibration
-extraction, and key/value codebook training are verified. Full LongBench-E evaluation
-is being submitted under command
-`pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`.
+extraction, and key/value codebook training are verified. Full LongBench-E attempt
+`pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf` returned code 1 before inference
+because the repository's current branch lacked the direct Parquet layout. No
+benchmark score was produced; the loader is being pinned to immutable revision
+`ac0b1359dbaf4d185394d0f78b1041813fbe5a54` before retry.
 
 No NMSE or LongBench-E score is reported without a matching successful Colab bridge
 result.

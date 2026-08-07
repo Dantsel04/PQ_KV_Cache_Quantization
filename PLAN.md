@@ -35,13 +35,14 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 
 ## Active Command
 
-- Stage: full LongBench-E baseline/dynamic/static evaluation
-- Active command ID: `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
+- Stage: LongBench-E loader repair and 13-dataset preflight
+- Failed evaluation ID: `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
 - Prior training command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
 - Verification command ID: `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a`
 - Bridge: `G:\My Drive\PQ_agent`
-- State: ready for submission; accept only a matching bridge result for the active
-  evaluation ID.
+- State: evaluation attempt returned code 1 before inference because repository
+  `main` lacked direct Parquet shards. Pin and preflight immutable revision
+  `ac0b1359dbaf4d185394d0f78b1041813fbe5a54` before retrying.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
 - Selection method: use the unique standalone LongBench-cell source marker because

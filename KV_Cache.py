@@ -5044,7 +5044,11 @@ DISABLE_QWEN_THINKING = True
 TRACK_TOKEN_LEVEL_OUTLIERS = False
 
 LONG_BENCH_REPOS = ["zai-org/LongBench", "THUDM/LongBench"]
-LONG_BENCH_LOADER_VERSION = "parquet-local-v3"
+# Pin the converted Parquet tree. The repository's current main branch can point
+# back to the legacy data.zip layout, which makes a main-branch file listing
+# nondeterministic for direct-Parquet loading.
+LONG_BENCH_REVISION = "ac0b1359dbaf4d185394d0f78b1041813fbe5a54"
+LONG_BENCH_LOADER_VERSION = "parquet-local-v4-pinned-ac0b135"
 LONG_BENCH_E_DATASETS = [
     "qasper", "multifieldqa_en", "hotpotqa", "2wikimqa", "gov_report",
     "multi_news", "trec", "triviaqa", "samsum", "passage_count",
@@ -6545,7 +6549,11 @@ def _download_longbench_parquet_paths(repo, config_name):
     """
     from huggingface_hub import HfApi, hf_hub_download
 
-    repo_files = HfApi().list_repo_files(repo_id=repo, repo_type="dataset")
+    repo_files = HfApi(token=False).list_repo_files(
+        repo_id=repo,
+        repo_type="dataset",
+        revision=LONG_BENCH_REVISION,
+    )
     prefix = f"{config_name}/"
     shard_names = sorted(
         path
@@ -6565,6 +6573,8 @@ def _download_longbench_parquet_paths(repo, config_name):
             repo_id=repo,
             filename=filename,
             repo_type="dataset",
+            revision=LONG_BENCH_REVISION,
+            token=False,
         )
         for filename in shard_names
     ]
@@ -6593,7 +6603,7 @@ def load_longbench_examples(dataset):
                 ds = ds.select(range(min(MAX_SAMPLES_PER_DATASET, len(ds))))
 
             source = (
-                f"{repo}/{config_name} "
+                f"{repo}@{LONG_BENCH_REVISION}/{config_name} "
                 f"({len(parquet_paths)} locally cached parquet shard(s))"
             )
             return [dict(x) for x in ds], source, config_name

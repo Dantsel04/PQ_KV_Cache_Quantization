@@ -35,8 +35,11 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   `0.020132016182836856` (`0.0195675781971871` with 3 outliers).
 - Runtime compatibility passed during training, and the independent audit verified
   all 576 calibration-derived static masks with 3 unique dimensions per head.
-- Full baseline/dynamic/static LongBench-E evaluation is being submitted under
-  command `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`.
+- Full evaluation attempt `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
+  returned code 1 before inference: the current LongBench repository branch no
+  longer exposed the expected `qasper_e` Parquet path. The loader is being fixed to
+  pin immutable Parquet revision
+  `ac0b1359dbaf4d185394d0f78b1041813fbe5a54`; no benchmark scores were produced.
 
 ## Colab Bridge Contract
 
@@ -62,6 +65,7 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-extract-verify-63a78449724942d9ba3d822e7b2976d8` | Extraction artifact audit | 0 | Verified held-out mode, 800 documents (720 train/80 test), 4096 tokens, no eval-task overlap, and 1,152 float16 arrays across 36 layers and 8 KV heads. |
 | `pq-train-e80750afac6c45ac8a30322536a84957` | K/V codebook training | 0 | Trained both 64-bank x 128-codeword sides, passed runtime compatibility, wrote held-out NMSE reports, and produced 576 calibration-static masks. |
 | `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a` | Codebook artifact audit | 0 | Parsed every fine/coarse/LUT artifact, verified both 288-head maps and 64 groups, validated finite NMSE, and checked all static masks. |
+| `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf` | Full LongBench-E attempt 1 | 1 | Model and both codebook sets loaded; failed before inference because current repository `main` lacked direct `qasper_e` Parquet shards. |
 
 ## Implemented LongBench-E Configuration
 
@@ -99,7 +103,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 
 ## Next Steps for the Goal Chat
 
-1. Monitor exact command `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`.
-2. Independently audit aggregate and per-dataset CSV outputs after evaluation.
-3. Update `PLAN.md`, this file, and `LONGBENCH_E_RESULTS.md` after each verified
+1. Validate all 13 LongBench-E Parquet configs at the pinned immutable revision.
+2. Retry full evaluation under a new unique command ID only after that preflight.
+3. Independently audit aggregate and per-dataset CSV outputs after evaluation.
+4. Update `PLAN.md`, this file, and `LONGBENCH_E_RESULTS.md` after each verified
    checkpoint; commit and push meaningful source/documentation changes.
