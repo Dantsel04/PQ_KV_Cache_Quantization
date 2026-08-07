@@ -88,6 +88,18 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   `0.0036763673336488215` (`0.003374926364974923` with 3 outliers); values NMSE
   `0.020654950321943002` (`0.020074927513791755` with 3 outliers). These are
   diagnostic contaminated-calibration metrics, not reportable held-out results.
+- Contaminated smoke execution
+  `pq-contaminated-smoke-37bbd549507d41049768e41d6bb4be22` returned code 0.
+  Independent audit
+  `pq-contaminated-smoke-audit-f3624950a53b4b33bfa0d94ed59580fd`
+  returned code 0 and reconciled all 18 predictions, 9 summary rows, 3 comparison
+  rows, and the aggregate. Diagnostic dataset-average scores were baseline
+  `77.77777777777777`, dynamic `83.33333333333333`, and static `80.0`.
+- Against the prior held-out-codebook smoke, contaminated dynamic improved by
+  `16.96969696969697` points and static improved by `15.55555555555556` points;
+  baseline was unchanged. Per the requested branch rule, a larger roughly one-hour
+  contaminated diagnostic is next. It was not launched before the Colab runtime
+  disconnected.
 
 ## Colab Bridge Contract
 
@@ -124,6 +136,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-contaminated-extract-audit-4cd266491e374f89b102ecfd0541dca5` | Contaminated extraction audit | 0 | Verified provenance, all 13 tasks, document separation, 1,152 arrays, finite samples, and matching Drive backup. |
 | `pq-contaminated-train-cf73fe9e2f344b23a89d67df2d17db1c` | Contaminated K/V codebook training | 0 | Trained both 64-bank x 128-codeword sides, produced NMSE reports and 576 static masks, and passed runtime compatibility. |
 | `pq-contaminated-codebook-audit-2252173ff42240e7bc261206bc3e6c6d` | Contaminated codebook audit | 0 | Exhaustively validated both maps, 64 groups per side, all codebook files/LUTs, exact NMSE, and static masks. |
+| `pq-contaminated-smoke-37bbd549507d41049768e41d6bb4be22` | Contaminated-codebook smoke execution | 0 | Ran baseline/dynamic/static on two samples from each of qasper, hotpotqa, and passage_retrieval_en. |
+| `pq-contaminated-smoke-audit-f3624950a53b4b33bfa0d94ed59580fd` | Contaminated smoke audit | 0 | Reconciled 18 predictions and all summaries; baseline 77.78, dynamic 83.33, static 80.00. |
 
 ## Implemented LongBench-E Configuration
 
@@ -161,8 +175,6 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 
 ## Next Steps for the Goal Chat
 
-1. Run and audit a contaminated-codebook smoke test. Keep its scores explicitly
-   diagnostic and separate from reportable held-out results.
-2. If PQ smoke scores improve over the prior held-out smoke, run an audited larger
-   diagnostic sized for roughly one hour. If they worsen, perform literature-backed
-   methodology analysis and produce an improvement plan without changing code.
+1. Reconnect the Colab runtime and restart the bridge controller.
+2. Run and audit a larger contaminated-codebook diagnostic sized for roughly one
+   hour. Keep its results separate from reportable held-out metrics.

@@ -32,29 +32,32 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - [x] Run and inspect the requested small diagnostic LongBench smoke test.
 - [x] Extract and audit exact LongBench-E contaminated calibration vectors.
 - [x] Train and audit separate contaminated 64 x 128 key/value codebooks.
-- [ ] Run and audit a smoke test using only the contaminated codebook directory.
+- [x] Run and audit a smoke test using only the contaminated codebook directory.
+- [ ] Run and audit the approximately one-hour larger contaminated diagnostic.
 - [ ] Run the full LongBench-E baseline/dynamic/static suite.
 - [ ] Record verified aggregate and per-dataset results.
 - [ ] Update and publish final project documentation.
 
 ## Active Command
 
-- Stage: contaminated-codebook LongBench-E smoke test
-- Active command ID: `pq-contaminated-smoke-37bbd549507d41049768e41d6bb4be22`
+- Stage: prepare the larger contaminated-codebook diagnostic after runtime reconnect
+- Active command ID: none; the Colab runtime disconnected before larger-test launch
 - Verified contaminated extraction ID: `pq-contaminated-extract-27437bd820e64c808c864b18b013a61c`
 - Verified contaminated extraction audit ID: `pq-contaminated-extract-audit-4cd266491e374f89b102ecfd0541dca5`
 - Verified contaminated training ID: `pq-contaminated-train-cf73fe9e2f344b23a89d67df2d17db1c`
 - Verified contaminated codebook audit ID: `pq-contaminated-codebook-audit-2252173ff42240e7bc261206bc3e6c6d`
+- Verified contaminated smoke ID: `pq-contaminated-smoke-37bbd549507d41049768e41d6bb4be22`
+- Verified contaminated smoke audit ID: `pq-contaminated-smoke-audit-f3624950a53b4b33bfa0d94ed59580fd`
 - Verified smoke execution ID: `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34`
 - Verified smoke audit ID: `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964`
 - Failed evaluation ID: `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
 - Prior training command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
 - Verification command ID: `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a`
 - Bridge: `G:\My Drive\PQ_agent`
-- State: contaminated training and its exhaustive codebook audit returned matching
-  code 0. Both sides have 288 heads, 64 groups, all 12,288 codebook files, exact
-  NMSE reports, and 576 valid static masks. The same three-dataset/two-sample smoke
-  test is next for a controlled comparison with held-out codebooks.
+- State: the contaminated smoke execution and independent audit returned matching
+  code 0. Dynamic improved from `66.36363636363636` to `83.33333333333333` and
+  static improved from `64.44444444444444` to `80.0`, with unchanged baseline.
+  The larger-test branch is selected, but the runtime disconnected before launch.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
 - Selection method: use the unique standalone LongBench-cell source marker because
@@ -85,6 +88,14 @@ Never claim a GPU stage succeeded without the matching `result.json`.
   `0.003374926364974923`.
 - Values: NMSE `0.020654950321943002`; with 3 preserved outliers
   `0.020074927513791755`.
+
+## Verified Contaminated Smoke Metrics (Diagnostic Only)
+
+- Dataset-average baseline: `77.77777777777777`.
+- Dataset-average dynamic PQ: `83.33333333333333`.
+- Dataset-average static top-3 PQ: `80.0`.
+- Improvement over held-out-codebook smoke: dynamic `+16.96969696969697`, static
+  `+15.55555555555556`, baseline unchanged.
 
 ## Bridge Loop
 
