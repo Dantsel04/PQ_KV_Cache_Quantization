@@ -10,7 +10,7 @@ Current local verification:
 - `py -m py_compile KV_Cache.py`: passed for the LongBench-E optimization revision.
 - `py -m jupytext --sync KV_Cache.ipynb`: passed; repeat after subsequent source edits.
 - Static AST/config validation: passed for held-out calibration, 4096-token alignment, versioned artifacts, full LongBench-E mode, and matching K/V 64-bank × 128-codeword settings.
-- Colab GPU run: pending. Browser control is unavailable in the current Codex tool runtime and no Colab bridge/controller files exist in the repository.
+- Colab GPU run: pending. Browser control is unavailable in the current Codex tool runtime and no Colab bridge/controller files exist in the repository. The runnable revision is published at commit `73b6b54`.
 
 ## Repository Inventory
 
@@ -92,7 +92,6 @@ Run the optimized codebook extraction/training and full LongBench-E test suite o
 
 ## Next Steps
 
-1. Publish the synced notebook revision so Colab can pull it.
-2. Run extraction, improved codebook training, and the full LongBench-E evaluator on the L4 GPU.
-3. Inspect the calibration manifest, per-side NMSE reports, aggregate score CSV, and per-dataset score CSV.
-4. Write `LONGBENCH_E_RESULTS.md` with verified results and next-step recommendations.
+1. Run extraction, improved codebook training, and the full LongBench-E evaluator on the L4 GPU from commit `73b6b54`.
+2. Inspect the calibration manifest, per-side NMSE reports, aggregate score CSV, and per-dataset score CSV.
+3. Replace the pending fields in `LONGBENCH_E_RESULTS.md` with verified GPU results.

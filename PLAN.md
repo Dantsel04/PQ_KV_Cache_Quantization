@@ -16,7 +16,7 @@ Train reportable held-out LongBench-E codebooks for Qwen3-8B with keys and value
 - [x] Select fine k-means restarts independently per PQ bank.
 - [x] Learn static outlier masks from calibration rather than evaluation samples.
 - [x] Sync `KV_Cache.ipynb` and pass local syntax/config checks.
-- [ ] Publish the runnable revision to GitHub for Colab.
+- [x] Publish the runnable revision to GitHub for Colab (`73b6b54`).
 - [ ] Run calibration extraction and codebook training on the L4 GPU.
 - [ ] Run the full LongBench-E baseline/dynamic/static suite.
 - [ ] Inspect GPU artifacts and write `LONGBENCH_E_RESULTS.md`.
