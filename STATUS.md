@@ -30,6 +30,19 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
     `longbench_calibration_extraction_role_aware`,
     `longbench_adaptive_codebook_training`, and
     `longbench_eval_dynamic_static_variant`.
+- Variant A extraction command
+  `pq-variant-a-extract-retry-8da35f1df1ea4fa1a90676ddcdffae43` returned code 0.
+  It checked out commit `85f79b1`, selected the clean Hotpot-specialized 800-document
+  mixture, wrote 800 shards with zero failures, assembled 36,000 train and 4,000
+  document-disjoint test vectors per layer/head under
+  `/content/qwen3_8B/pq_training_data_longbench_e_clean_hotpot_a_4096`, and started
+  a Drive backup.
+- Variant A extraction audit
+  `pq-variant-a-extract-audit-a3b514de5c564010936cf89a01885d67` returned code 0.
+  It verified 800 documents, exact Variant A source counts, 36,000 train and 4,000
+  test sidecar rows, all five position roles in train/test, all 1,152 key/value
+  Train/Test arrays, finite sampled vectors, matching Drive backup files, and zero
+  exact source-ID overlap with the pinned LongBench-E evaluation revision.
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.

@@ -171,8 +171,8 @@ cluster, not just by prompt row.
 
 ### Phase 5 — Variant A extraction and training
 
-- [ ] Extract Variant A calibration vectors through the Colab bridge.
-- [ ] Audit all expected arrays, source/role quotas, deduplication report, and Drive
+- [x] Extract Variant A calibration vectors through the Colab bridge.
+- [x] Audit all expected arrays, source/role quotas, deduplication report, and Drive
   backup before training.
 - [ ] Train Variant A key/value codebooks using adaptive group budgets.
 - [ ] Audit every head map, group budget, codebook/LUT artifact, static mask, and
@@ -246,12 +246,11 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A extraction submitted
-- Active command ID: `pq-variant-a-extract-retry-8da35f1df1ea4fa1a90676ddcdffae43`
+- Stage: Variant A extraction audited; training pending
+- Active command ID: none
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: wait for the matching bridge result, then independently audit the
-  generated manifest, arrays, role/source sidecars, and Drive backup before training.
+- Next action: train Variant A key/value codebooks with adaptive group budgets.
 
 ## Completion Criteria
 
