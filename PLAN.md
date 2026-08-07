@@ -40,7 +40,7 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 
 ## Active Command
 
-- Stage: prepare the larger contaminated-codebook diagnostic after runtime reconnect
+- Stage: prepare the 35-sample-per-dataset contaminated diagnostic after runtime reconnect
 - Active command ID: none; the Colab runtime disconnected before larger-test launch
 - Verified contaminated extraction ID: `pq-contaminated-extract-27437bd820e64c808c864b18b013a61c`
 - Verified contaminated extraction audit ID: `pq-contaminated-extract-audit-4cd266491e374f89b102ecfd0541dca5`
@@ -57,7 +57,9 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - State: the contaminated smoke execution and independent audit returned matching
   code 0. Dynamic improved from `66.36363636363636` to `83.33333333333333` and
   static improved from `64.44444444444444` to `80.0`, with unchanged baseline.
-  The larger-test branch is selected, but the runtime disconnected before launch.
+  The larger-test branch is selected. The planned scope is 35 samples on each of
+  the same three datasets (315 predictions across modes), with an isolated
+  `larger105` output tag; the runtime disconnected before launch.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
 - Selection method: use the unique standalone LongBench-cell source marker because

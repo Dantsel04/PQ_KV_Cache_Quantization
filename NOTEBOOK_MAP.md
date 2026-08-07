@@ -106,6 +106,11 @@ Dependencies:
 - Produces the preferred inputs for the improved LongBench-aware PQ codebook trainer.
 - The trainer validates `calibration_manifest.json` to avoid accidentally using contaminated or mismatched calibration data.
 
+Command controls:
+- `PQ_CALIBRATION_MODE` selects held-out, matched, or contaminated extraction.
+- `PQ_LONGBENCH_TEST_SAMPLES_PER_DATASET` sizes diagnostic evaluation runs.
+- `PQ_LONGBENCH_RUN_TAG` isolates diagnostic output directories and CSV names.
+
 ## Section 4: Quantized Hugging Face Model Loading Experiments
 
 Cells: lines 1157-1255

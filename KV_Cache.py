@@ -5132,7 +5132,20 @@ if _test_mode_env not in {"0", "1", "false", "true", "no", "yes", "off", "on"}:
     )
 TEST_MODE = _test_mode_env in {"1", "true", "yes", "on"}
 USE_LONG_BENCH_E = True
-MAX_SAMPLES_PER_DATASET = 2 if TEST_MODE else None
+_test_samples_env = os.environ.get(
+    "PQ_LONGBENCH_TEST_SAMPLES_PER_DATASET", "2"
+).strip()
+try:
+    _test_samples_per_dataset = int(_test_samples_env)
+except ValueError as exc:
+    raise ValueError(
+        "PQ_LONGBENCH_TEST_SAMPLES_PER_DATASET must be a positive integer"
+    ) from exc
+if _test_samples_per_dataset < 1:
+    raise ValueError(
+        "PQ_LONGBENCH_TEST_SAMPLES_PER_DATASET must be a positive integer"
+    )
+MAX_SAMPLES_PER_DATASET = _test_samples_per_dataset if TEST_MODE else None
 MAX_INPUT_TOKENS = 4096
 MAX_NEW_TOKENS_CAP = 64 if TEST_MODE else None
 USE_CHAT_TEMPLATE = True
@@ -5175,6 +5188,14 @@ if _eval_calibration_mode_env not in {"held_out", "matched", "contaminated"}:
     )
 EVAL_CALIBRATION_MODE = _eval_calibration_mode_env
 _result_suffix = "" if EVAL_CALIBRATION_MODE == "held_out" else f"_{EVAL_CALIBRATION_MODE}"
+_run_tag = os.environ.get("PQ_LONGBENCH_RUN_TAG", "").strip()
+if _run_tag and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", _run_tag) is None:
+    raise ValueError(
+        "PQ_LONGBENCH_RUN_TAG must be 1-64 alphanumeric, underscore, or hyphen "
+        "characters and start with an alphanumeric character"
+    )
+if _run_tag:
+    _result_suffix += f"_{_run_tag}"
 
 OUTPUT_DIR = f"longbench_pq_outputs{_result_suffix}"
 RESULTS_CSV = f"longbench_pq_dynamic_static_result{_result_suffix}.csv"
@@ -5215,6 +5236,8 @@ VALUE_CONFIG = {
 EXPERIMENT_NAME = "LongBenchE_K64x128_C64_out3__V64x128_C64_out3"
 if EVAL_CALIBRATION_MODE != "held_out":
     EXPERIMENT_NAME += f"__{EVAL_CALIBRATION_MODE}_calibration"
+if _run_tag:
+    EXPERIMENT_NAME += f"__{_run_tag}"
 
 
 # ============================================================
