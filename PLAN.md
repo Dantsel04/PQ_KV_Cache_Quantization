@@ -2,17 +2,15 @@
 
 ## Active Milestone
 
-Complete the requested contaminated-calibration diagnostic through retraining and
-an audited LongBench-E smoke test, while preserving the verified held-out artifacts.
+Archive the user-requested stopping point after contaminated retraining and an
+audited LongBench-E smoke comparison, preserving held-out artifacts and limitations.
 
 ## Goal Objective
 
-Continue without manual stage-by-stage prompting until held-out calibration
-extraction, 64-bank x 128-codeword key/value codebook training, and the full
-baseline/dynamic/static LongBench-E evaluation all have matching successful bridge
-results. Diagnose failures, make minimal source fixes, sync, commit, push, and retry.
-
-Never claim a GPU stage succeeded without the matching `result.json`.
+Close the run at the user's requested audited smoke checkpoint, preserve all exact
+bridge evidence and learnings, and state clearly that the original full 13-dataset
+evaluation objective remains unmet. Never claim a GPU stage succeeded without the
+matching `result.json`.
 
 ## Task Checklist
 
@@ -33,21 +31,24 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - [x] Extract and audit exact LongBench-E contaminated calibration vectors.
 - [x] Train and audit separate contaminated 64 x 128 key/value codebooks.
 - [x] Run and audit a smoke test using only the contaminated codebook directory.
-- [ ] Run and audit the approximately one-hour larger contaminated diagnostic.
-- [ ] Run the full LongBench-E baseline/dynamic/static suite.
-- [ ] Record verified aggregate and per-dataset results.
-- [ ] Update and publish final project documentation.
+- [ ] Run and audit the approximately one-hour larger contaminated diagnostic. Not
+  run; user ended the goal at the smoke checkpoint.
+- [ ] Run the full LongBench-E baseline/dynamic/static suite. Not completed; no full
+  benchmark score is claimed.
+- [x] Record all verified NMSE and smoke aggregate/per-dataset results.
+- [x] Update and publish final project documentation and learnings.
 
 ## Active Command
 
-- Stage: prepare the 35-sample-per-dataset contaminated diagnostic after runtime reconnect
-- Active command ID: none; the Colab runtime disconnected before larger-test launch
+- Stage: closed at the user-requested audited diagnostic checkpoint
+- Active command ID: none
 - Verified contaminated extraction ID: `pq-contaminated-extract-27437bd820e64c808c864b18b013a61c`
 - Verified contaminated extraction audit ID: `pq-contaminated-extract-audit-4cd266491e374f89b102ecfd0541dca5`
 - Verified contaminated training ID: `pq-contaminated-train-cf73fe9e2f344b23a89d67df2d17db1c`
 - Verified contaminated codebook audit ID: `pq-contaminated-codebook-audit-2252173ff42240e7bc261206bc3e6c6d`
 - Verified contaminated smoke ID: `pq-contaminated-smoke-37bbd549507d41049768e41d6bb4be22`
 - Verified contaminated smoke audit ID: `pq-contaminated-smoke-audit-f3624950a53b4b33bfa0d94ed59580fd`
+- Verified post-disconnect preflight ID: `pq-post-disconnect-artifact-preflight-7607f43198df41a58cc45bd2de614a8c`
 - Verified smoke execution ID: `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34`
 - Verified smoke audit ID: `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964`
 - Failed evaluation ID: `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
@@ -57,9 +58,9 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - State: the contaminated smoke execution and independent audit returned matching
   code 0. Dynamic improved from `66.36363636363636` to `83.33333333333333` and
   static improved from `64.44444444444444` to `80.0`, with unchanged baseline.
-  The larger-test branch is selected. The planned scope is 35 samples on each of
-  the same three datasets (315 predictions across modes), with an isolated
-  `larger105` output tag; the runtime disconnected before launch.
+  The user ended the goal before the larger or full evaluation. Verified results
+  and learnings are consolidated in `LONGBENCH_E_RESULTS.md`; no full-suite score is
+  claimed.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
 - Selection method: use the unique standalone LongBench-cell source marker because
@@ -135,14 +136,15 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - `git diff --check`
 - Matching Colab bridge result plus stage-specific artifact validation.
 
-## Done Criteria
+## Session Close Criteria
 
-- Extraction, training, and evaluation each have a matching return code of 0.
-- Manifest provenance and task separation are valid.
-- Both K/V codebook maps are complete and use their own directories.
-- Held-out key/value NMSE reports exist and are summarized.
-- Full LongBench-E baseline, dynamic, and calibration-static scores exist.
-- `LONGBENCH_E_RESULTS.md`, `STATUS.md`, and this plan contain only verified results.
+- Held-out and contaminated extraction/training stages have matching code-0 results
+  and independent audits.
+- Both smoke comparisons have matching code-0 results and independent audits.
+- Full-suite attempts and their incomplete status are documented without claiming a
+  benchmark result.
+- `LONGBENCH_E_RESULTS.md`, `STATUS.md`, and this plan contain the verified results,
+  limitations, and reusable learnings.
 
 ## Suggested New-Chat Goal
 

@@ -8,7 +8,7 @@ This repository contains a Jupytext-managed Google Colab workflow for Qwen3-8B
 KV-cache product quantization. `KV_Cache.py` is the editable source and
 `KV_Cache.ipynb` is the synced Colab artifact.
 
-- Published contaminated-mode source checkpoint: `c536a36` on `main`.
+- Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
 - `py -m jupytext --sync KV_Cache.ipynb`: passed.
 - Static configuration checks passed for held-out calibration, 4096-token
@@ -100,6 +100,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   baseline was unchanged. Per the requested branch rule, a larger roughly one-hour
   contaminated diagnostic is next. It was not launched before the Colab runtime
   disconnected.
+- Post-disconnect preflight
+  `pq-post-disconnect-artifact-preflight-7607f43198df41a58cc45bd2de614a8c`
+  returned code 0 and confirmed the model, both calibration manifests, both complete
+  held-out/contaminated codebook trees, and both 576-mask files survived.
+- The user ended the goal at this verified diagnostic checkpoint. No larger
+  diagnostic or full 13-dataset evaluation was launched afterward. Full LongBench-E
+  aggregate scores remain unavailable; only the audited smoke scores are recorded.
 
 ## Colab Bridge Contract
 
@@ -138,6 +145,7 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-contaminated-codebook-audit-2252173ff42240e7bc261206bc3e6c6d` | Contaminated codebook audit | 0 | Exhaustively validated both maps, 64 groups per side, all codebook files/LUTs, exact NMSE, and static masks. |
 | `pq-contaminated-smoke-37bbd549507d41049768e41d6bb4be22` | Contaminated-codebook smoke execution | 0 | Ran baseline/dynamic/static on two samples from each of qasper, hotpotqa, and passage_retrieval_en. |
 | `pq-contaminated-smoke-audit-f3624950a53b4b33bfa0d94ed59580fd` | Contaminated smoke audit | 0 | Reconciled 18 predictions and all summaries; baseline 77.78, dynamic 83.33, static 80.00. |
+| `pq-post-disconnect-artifact-preflight-7607f43198df41a58cc45bd2de614a8c` | Post-disconnect persistence preflight | 0 | Confirmed model and complete held-out/contaminated calibration/codebook/mask artifacts survived. |
 
 ## Implemented LongBench-E Configuration
 
@@ -169,12 +177,14 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   and Google Drive.
 - Several notebook sections redefine helper/model names; only the intended large
   pipeline cell should be selected for each bridge stage.
-- Contaminated calibration remains diagnostic only and must not be reported.
+- Contaminated calibration remains diagnostic only and must not be reported as a
+  final or generalizing benchmark result.
 - Generated calibration arrays, weights, codebooks, results, and bridge outputs stay
   out of Git.
 
 ## Next Steps for the Goal Chat
 
-1. Reconnect the Colab runtime and restart the bridge controller.
-2. Run and audit a larger contaminated-codebook diagnostic sized for roughly one
-   hour. Keep its results separate from reportable held-out metrics.
+The user ended the goal at the audited smoke checkpoint. See
+`LONGBENCH_E_RESULTS.md` for the verified results, limitations, learnings, and
+recommended future work. A future full LongBench-E run must still obtain its own
+matching code-0 result and independent output audit.
