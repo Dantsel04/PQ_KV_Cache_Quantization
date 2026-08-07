@@ -62,6 +62,15 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   `77.77777777777777`, dynamic `66.36363636363636`, and static
   `64.44444444444444`. These two-sample smoke scores are not final benchmark
   results.
+- Full retry `pq-longbench-e-full-13d26f49dd214c84bf8f6b46d6f46d20`
+  has an exact matching terminal result with return code 130. It was manually
+  interrupted after 64 of 224 baseline qasper samples, before any complete dataset
+  result was saved. It produced no valid full-suite benchmark score.
+- The next requested experiment is explicitly diagnostic contaminated calibration.
+  Extraction, training, evaluation codebook selection, and result paths are now
+  selectable by environment variable and use separate mode-qualified directories.
+  Contaminated extraction reads the exact pinned LongBench-E Parquet revision rather
+  than the legacy task-name-matched `data.zip` corpus.
 
 ## Colab Bridge Contract
 
@@ -93,6 +102,7 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-longbench-data-preflight-57f3129627314f75b7791cc2bb5437a4` | Full data/schema preflight | 0 | Downloaded and opened all 13 shards, verified required columns, and counted 3,668 samples. |
 | `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34` | Three-dataset LongBench smoke execution | 0 | Executed baseline, dynamic, then static evaluation for two samples on each of qasper, hotpotqa, and passage_retrieval_en. |
 | `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964` | Smoke artifact audit | 0 | Verified and reconciled 18 predictions, 9 summaries, 3 comparisons, and one aggregate row; scores are diagnostic only. |
+| `pq-longbench-e-full-13d26f49dd214c84bf8f6b46d6f46d20` | Full LongBench-E retry 3 | 130 | User interruption after 64/224 baseline qasper samples; no complete dataset or valid benchmark result. |
 
 ## Implemented LongBench-E Configuration
 
@@ -130,7 +140,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 
 ## Next Steps for the Goal Chat
 
-1. Restore/run the full evaluation under a new unique ID, accept only its exact
-   matching terminal result, and independently audit all output artifacts.
-2. Update `PLAN.md`, this file, and `LONGBENCH_E_RESULTS.md` after each verified
-   checkpoint; commit and push meaningful source/documentation changes.
+1. Extract exact LongBench-E contaminated calibration vectors into a separate
+   mode-qualified directory and independently audit provenance/artifacts.
+2. Train and audit separate contaminated 64-bank x 128-codeword K/V codebooks.
+3. Run and audit a contaminated-codebook smoke test. Keep its scores explicitly
+   diagnostic and separate from reportable held-out results.

@@ -423,7 +423,8 @@ import subprocess
 # Set to False once the session is warm; this re-runs on every execution otherwise.
 INSTALL_DEPS = True
 if INSTALL_DEPS:
-    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "huggingface_hub"],
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                    "huggingface_hub", "datasets>=4.0.0"],
                    check=False)
 
 import numpy as np
@@ -439,11 +440,18 @@ from transformers import AutoTokenizer
 # =====================================================================================
 
 MODEL_DIR = "/content/qwen3_8B"
-PQ_OUTPUT_DIR = f"{MODEL_DIR}/pq_training_data_longbench_e_held_out_4096"
+_calibration_mode_env = os.environ.get("PQ_CALIBRATION_MODE", "held_out").strip().lower()
+if _calibration_mode_env not in {"held_out", "matched", "contaminated"}:
+    raise ValueError(
+        "PQ_CALIBRATION_MODE must be held_out, matched, or contaminated"
+    )
+CALIBRATION_MODE = _calibration_mode_env
+PQ_OUTPUT_DIR = (
+    f"{MODEL_DIR}/pq_training_data_longbench_e_{CALIBRATION_MODE}_4096"
+)
 SHARD_DIR = f"{PQ_OUTPUT_DIR}/_shards"          # per-document, enables resume
 LONGBENCH_ROOT = "/content/longbench_data"
-
-CALIBRATION_MODE = "held_out"        # held_out | matched | contaminated
+LONGBENCH_E_REVISION = "36914d6211386125c6fc4ce7db4a6a777fadd34c"
 
 # What you evaluate on. Excluded from calibration in held_out mode.
 EVAL_TASKS = [
@@ -490,7 +498,7 @@ DELETE_SHARDS_AFTER = False          # set True to reclaim ~3GB once assembly su
 BACKUP_TO_DRIVE = True
 DRIVE_PQ_PATH = (
     "/content/drive/MyDrive/qwen3_8B/"
-    "pq_training_data_longbench_e_held_out_4096"
+    f"pq_training_data_longbench_e_{CALIBRATION_MODE}_4096"
 )
 
 
@@ -503,6 +511,7 @@ DATASET2PROMPT_URL = ("https://raw.githubusercontent.com/THUDM/LongBench/main/"
                       "LongBench/config/dataset2prompt.json")
 
 NO_CHAT_TEMPLATE = {"trec", "triviaqa", "samsum", "lsht", "lcc", "repobench-p"}
+_LONGBENCH_E_REPO_FILES = None
 
 
 def ensure_longbench_data(root=LONGBENCH_ROOT):
@@ -526,6 +535,46 @@ def ensure_longbench_data(root=LONGBENCH_ROOT):
 
 
 def load_longbench_task(name, root=LONGBENCH_ROOT):
+    if CALIBRATION_MODE in {"matched", "contaminated"}:
+        # Use the exact immutable LongBench-E examples consumed by the evaluator.
+        # Loading the legacy data.zip task here would only match task names, not
+        # evaluation documents, and therefore would not be genuinely contaminated.
+        from datasets import load_dataset
+        from huggingface_hub import HfApi, hf_hub_download
+
+        config_name = f"{name}_e"
+        global _LONGBENCH_E_REPO_FILES
+        if _LONGBENCH_E_REPO_FILES is None:
+            api = HfApi()
+            _LONGBENCH_E_REPO_FILES = api.list_repo_files(
+                "zai-org/LongBench",
+                repo_type="dataset",
+                revision=LONGBENCH_E_REVISION,
+            )
+        files = _LONGBENCH_E_REPO_FILES
+        shard_names = sorted(
+            filename for filename in files
+            if filename.startswith(f"{config_name}/") and filename.endswith(".parquet")
+        )
+        if not shard_names:
+            raise FileNotFoundError(
+                f"No Parquet shards for {config_name} at {LONGBENCH_E_REVISION}"
+            )
+        paths = [
+            hf_hub_download(
+                "zai-org/LongBench",
+                filename=filename,
+                repo_type="dataset",
+                revision=LONGBENCH_E_REVISION,
+                token=False,
+            )
+            for filename in shard_names
+        ]
+        dataset = load_dataset(
+            "parquet", data_files={"test": paths}, split="test"
+        )
+        return [dict(row) for row in dataset]
+
     ensure_longbench_data(root)
     matches = glob.glob(os.path.join(root, "**", f"{name}.jsonl"), recursive=True)
     if not matches:
@@ -1034,10 +1083,22 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
     # against this file -- do not rename those keys.
     manifest = {
         "calibration_mode": CALIBRATION_MODE,
+        "source_dataset_variant": (
+            "longbench_e" if CALIBRATION_MODE in {"matched", "contaminated"}
+            else "longbench_v1_excluded_tasks"
+        ),
+        "longbench_e_revision": (
+            LONGBENCH_E_REVISION
+            if CALIBRATION_MODE in {"matched", "contaminated"}
+            else None
+        ),
         "eval_tasks": EVAL_TASKS,
         "eval_samples_per_task": EVAL_SAMPLES_PER_TASK,
-        "calib_tasks": sorted(CALIB_TASK_WEIGHTS.keys()),
-        "calib_task_weights": CALIB_TASK_WEIGHTS,
+        "calib_tasks": sorted({task for task, _, _ in chosen}),
+        "calib_task_weights": (
+            CALIB_TASK_WEIGHTS if CALIBRATION_MODE == "held_out"
+            else {task: 1 for task in EVAL_TASKS}
+        ),
         "max_input_length": MAX_INPUT_LENGTH,
         "vectors_per_head": int(len(train_slots)),      # train side, what the trainer reads
         "test_vectors_per_head": int(len(test_slots)),
@@ -2041,7 +2102,17 @@ MODEL_NAME = "qwen3_8B"
 DRIVE_BASE = f"/content/{MODEL_NAME}"
 
 # Output produced by the LongBench calibration-vector extraction script.
-TRAINING_DATA_NAME = "pq_training_data_longbench_e_held_out_4096"
+_training_mode_env = os.environ.get(
+    "PQ_TRAINING_CALIBRATION_MODE", "held_out"
+).strip().lower()
+if _training_mode_env not in {"held_out", "matched", "contaminated"}:
+    raise ValueError(
+        "PQ_TRAINING_CALIBRATION_MODE must be held_out, matched, or contaminated"
+    )
+EXPECTED_CALIBRATION_MODE = _training_mode_env
+TRAINING_DATA_NAME = (
+    f"pq_training_data_longbench_e_{EXPECTED_CALIBRATION_MODE}_4096"
+)
 TRAINING_DATA_ROOT = os.path.join(DRIVE_BASE, TRAINING_DATA_NAME)
 CALIBRATION_MANIFEST = os.path.join(TRAINING_DATA_ROOT, "calibration_manifest.json")
 
@@ -2078,12 +2149,12 @@ SAVE_TO_DRIVE = False
 DRIVE_OUTPUT_BASE = f"/content/drive/MyDrive/{MODEL_NAME}"
 
 # Keep these codebooks separate from the original WikiText-trained codebooks.
-EXPECTED_CALIBRATION_MODE = "held_out"
 EXPECTED_EVAL_TASKS = {
     "qasper", "multifieldqa_en", "hotpotqa", "2wikimqa", "gov_report",
     "multi_news", "trec", "triviaqa", "samsum", "passage_count",
     "passage_retrieval_en", "lcc", "repobench-p",
 }
+EXPECTED_LONGBENCH_E_REVISION = "36914d6211386125c6fc4ce7db4a6a777fadd34c"
 CODEBOOK_TAG = f"longbench_e_{EXPECTED_CALIBRATION_MODE}_4096_balanced_kpp_noclip"
 CODEBOOK_NAME = (
     f"codebooks_{NUM_SUBVECTORS}_{CODEWORDS}_{CLUSTERS}_{CODEBOOK_TAG}"
@@ -2194,6 +2265,24 @@ def load_and_validate_calibration_manifest():
     if mode == "held_out" and overlap:
         raise ValueError(
             f"Held-out calibration is contaminated by eval tasks: {overlap}"
+        )
+    if mode in {"matched", "contaminated"}:
+        if manifest.get("source_dataset_variant") != "longbench_e":
+            raise ValueError(
+                "Matched/contaminated calibration must use exact LongBench-E data"
+            )
+        if manifest.get("longbench_e_revision") != EXPECTED_LONGBENCH_E_REVISION:
+            raise ValueError(
+                "Calibration LongBench-E revision does not match the evaluator"
+            )
+        unexpected = sorted(calib_tasks_used - eval_tasks)
+        if unexpected:
+            raise ValueError(
+                f"Matched/contaminated calibration contains non-eval tasks: {unexpected}"
+            )
+    if mode == "contaminated" and not overlap:
+        raise ValueError(
+            "Contaminated calibration contains no LongBench-E evaluation documents"
         )
 
     n_docs = manifest.get("num_documents", len(samples))
@@ -3423,7 +3512,7 @@ def run_pipeline_for_tensor_type(tensor_type="keys"):
 
 
 def build_calibration_static_masks():
-    """Learn reportable static masks from calibration training vectors, not eval data."""
+    """Learn static masks from the selected calibration training vectors."""
     payload = {}
     for tensor_type in ["keys", "values"]:
         data_dir = os.path.join(TRAINING_DATA_ROOT, tensor_type)
@@ -3465,7 +3554,7 @@ if __name__ == "__main__":
 
     # ---- summary ---------------------------------------------------------------------
     print("\n============================================================")
-    print("Reconstruction MSE summary (held-out test vectors)")
+    print("Reconstruction MSE summary (document-disjoint test vectors)")
     print("============================================================")
     for side, res in mse_all.items():
         if not res:
@@ -5077,15 +5166,25 @@ else:
 AUTO_REMAP_MISSING_GROUPS = False
 ALLOW_SINGLE_GROUP_FALLBACK = False
 
-OUTPUT_DIR = "longbench_pq_outputs"
-RESULTS_CSV = "longbench_pq_dynamic_static_result.csv"
-SUMMARY_CSV = "longbench_pq_summary_by_dataset.csv"
-STATIC_MASK_JSON = "outlier_static_top3_masks_longbench.json"
-STATIC_MASK_CSV = "outlier_static_top3_masks_longbench.csv"
-DYNAMIC_OUTLIER_OVERALL_CSV = "outlier_dynamic_reuse_overall_longbench.csv"
-DYNAMIC_OUTLIER_BY_HEAD_CSV = "outlier_dynamic_reuse_by_head_longbench.csv"
-STATIC_OUTLIER_OVERALL_CSV = "outlier_static_reuse_overall_longbench.csv"
-STATIC_OUTLIER_BY_HEAD_CSV = "outlier_static_reuse_by_head_longbench.csv"
+_eval_calibration_mode_env = os.environ.get(
+    "PQ_LONGBENCH_CALIBRATION_MODE", "held_out"
+).strip().lower()
+if _eval_calibration_mode_env not in {"held_out", "matched", "contaminated"}:
+    raise ValueError(
+        "PQ_LONGBENCH_CALIBRATION_MODE must be held_out, matched, or contaminated"
+    )
+EVAL_CALIBRATION_MODE = _eval_calibration_mode_env
+_result_suffix = "" if EVAL_CALIBRATION_MODE == "held_out" else f"_{EVAL_CALIBRATION_MODE}"
+
+OUTPUT_DIR = f"longbench_pq_outputs{_result_suffix}"
+RESULTS_CSV = f"longbench_pq_dynamic_static_result{_result_suffix}.csv"
+SUMMARY_CSV = f"longbench_pq_summary_by_dataset{_result_suffix}.csv"
+STATIC_MASK_JSON = f"outlier_static_top3_masks_longbench{_result_suffix}.json"
+STATIC_MASK_CSV = f"outlier_static_top3_masks_longbench{_result_suffix}.csv"
+DYNAMIC_OUTLIER_OVERALL_CSV = f"outlier_dynamic_reuse_overall_longbench{_result_suffix}.csv"
+DYNAMIC_OUTLIER_BY_HEAD_CSV = f"outlier_dynamic_reuse_by_head_longbench{_result_suffix}.csv"
+STATIC_OUTLIER_OVERALL_CSV = f"outlier_static_reuse_overall_longbench{_result_suffix}.csv"
+STATIC_OUTLIER_BY_HEAD_CSV = f"outlier_static_reuse_by_head_longbench{_result_suffix}.csv"
 
 # ============================================================
 # Reportable LongBench-E configuration. Keys and values use the same 64-bank,
@@ -5094,7 +5193,7 @@ STATIC_OUTLIER_BY_HEAD_CSV = "outlier_static_reuse_by_head_longbench.csv"
 
 LONGBENCH_E_CODEBOOK_DIR = os.path.join(
     MODEL_DIR,
-    "codebooks_64_128_64_longbench_e_held_out_4096_balanced_kpp_noclip",
+    f"codebooks_64_128_64_longbench_e_{EVAL_CALIBRATION_MODE}_4096_balanced_kpp_noclip",
 )
 
 KEY_CONFIG = {
@@ -5114,6 +5213,8 @@ VALUE_CONFIG = {
 }
 
 EXPERIMENT_NAME = "LongBenchE_K64x128_C64_out3__V64x128_C64_out3"
+if EVAL_CALIBRATION_MODE != "held_out":
+    EXPERIMENT_NAME += f"__{EVAL_CALIBRATION_MODE}_calibration"
 
 
 # ============================================================
@@ -6849,6 +6950,7 @@ if __name__ == "__main__":
             ("model_dir", MODEL_DIR),
             ("device", device),
             ("test_mode", TEST_MODE),
+            ("calibration mode", EVAL_CALIBRATION_MODE),
             ("longbench_e", USE_LONG_BENCH_E),
             ("LongBench loader", LONG_BENCH_LOADER_VERSION),
             ("datasets", preview_list(LONG_BENCH_DATASETS)),
@@ -6929,7 +7031,7 @@ if __name__ == "__main__":
     dynamic_tracker = pq_manager.outlier_tracker
     dynamic_tracker.print_summary()
 
-    section("Loading held-out calibration static masks")
+    section(f"Loading {EVAL_CALIBRATION_MODE} calibration static masks")
     static_masks, static_mask_source = load_calibration_static_masks(
         LONGBENCH_E_CODEBOOK_DIR
     )

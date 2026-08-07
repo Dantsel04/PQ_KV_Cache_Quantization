@@ -2,8 +2,8 @@
 
 ## Active Milestone
 
-Complete the verified Qwen3-8B LongBench-E PQ pipeline through the Google Drive
-Colab bridge.
+Complete the requested contaminated-calibration diagnostic through retraining and
+an audited LongBench-E smoke test, while preserving the verified held-out artifacts.
 
 ## Goal Objective
 
@@ -30,24 +30,27 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - [x] Train key and value 64 x 128 codebooks.
 - [x] Verify head maps, runtime compatibility, NMSE reports, and static masks.
 - [x] Run and inspect the requested small diagnostic LongBench smoke test.
+- [ ] Extract and audit exact LongBench-E contaminated calibration vectors.
+- [ ] Train and audit separate contaminated 64 x 128 key/value codebooks.
+- [ ] Run and audit a smoke test using only the contaminated codebook directory.
 - [ ] Run the full LongBench-E baseline/dynamic/static suite.
 - [ ] Record verified aggregate and per-dataset results.
 - [ ] Update and publish final project documentation.
 
 ## Active Command
 
-- Stage: full LongBench-E baseline/dynamic/static evaluation retry
-- Active command ID: `pq-longbench-e-full-13d26f49dd214c84bf8f6b46d6f46d20`
+- Stage: contaminated LongBench-E calibration extraction
+- Active command ID: `pq-contaminated-extract-27437bd820e64c808c864b18b013a61c`
 - Verified smoke execution ID: `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34`
 - Verified smoke audit ID: `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964`
 - Failed evaluation ID: `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
 - Prior training command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
 - Verification command ID: `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a`
 - Bridge: `G:\My Drive\PQ_agent`
-- State: the command-selectable smoke test and its independent artifact audit both
-  returned matching code 0. All 18 predictions and their CSV summaries reconciled.
-  A clean full 13-dataset retry is being launched with direct cell execution so
-  notebook stdout and progress bars stream through the controller.
+- State: full retry `pq-longbench-e-full-13d26f49dd214c84bf8f6b46d6f46d20`
+  returned matching code 130 after the user interrupted it at baseline qasper
+  64/224. The next experiment uses exact pinned LongBench-E documents in explicit
+  contaminated mode and keeps every generated artifact separate from held-out data.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
 - Selection method: use the unique standalone LongBench-cell source marker because
@@ -94,6 +97,12 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - `longbench_pq_outputs/aggregate_result.csv`.
 - `longbench_pq_dynamic_static_result.csv`.
 - `longbench_pq_summary_by_dataset.csv`.
+- Contaminated calibration root:
+  `/content/qwen3_8B/pq_training_data_longbench_e_contaminated_4096`.
+- Contaminated codebook root:
+  `/content/qwen3_8B/codebooks_64_128_64_longbench_e_contaminated_4096_balanced_kpp_noclip`.
+- Contaminated smoke outputs use `_contaminated`-suffixed directories/CSV names and
+  must never be substituted for final held-out results.
 
 ## Verification Commands
 

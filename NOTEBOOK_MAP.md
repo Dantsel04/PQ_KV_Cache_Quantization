@@ -90,16 +90,16 @@ Inputs:
 - `/content/qwen3_8B` model directory.
 - LongBench data from `zai-org/LongBench` or `THUDM/LongBench`.
 - Prompt template JSON from the LongBench GitHub repo.
-- Calibration config: `EVAL_TASKS`, `CALIB_TASK_WEIGHTS`, `NUM_CALIB_SAMPLES`, `MAX_INPUT_LENGTH`, `VECTORS_PER_HEAD`, `TEST_FRACTION`.
+- Calibration config: `PQ_CALIBRATION_MODE`, `EVAL_TASKS`, `CALIB_TASK_WEIGHTS`, `NUM_CALIB_SAMPLES`, `MAX_INPUT_LENGTH`, `VECTORS_PER_HEAD`, `TEST_FRACTION`.
 
 Outputs:
-- Shards: `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/_shards/*.npz`.
+- Shards: `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/_shards/*.npz`.
 - Training/test tensors:
-  - `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/keys/L{layer}_H{head}_Train.npy`
-  - `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/keys/L{layer}_H{head}_Test.npy`
+  - `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/keys/L{layer}_H{head}_Train.npy`
+  - `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/keys/L{layer}_H{head}_Test.npy`
   - matching `values` files.
 - `calibration_manifest.json`.
-- Optional Drive backup at `/content/drive/MyDrive/qwen3_8B/pq_training_data_longbench_e_held_out_4096`.
+- Optional Drive backup at `/content/drive/MyDrive/qwen3_8B/pq_training_data_longbench_e_{mode}_4096`.
 
 Dependencies:
 - Requires downloaded Qwen3 8B model files and tokenizer.
@@ -204,14 +204,14 @@ Important functions/classes:
 - Output/validation: `save_group_codebooks`, `write_head_map`, `write_cluster_summary`, `validate_generated_codebooks`, `validate_runtime_compatibility`, `run_pipeline_for_tensor_type`.
 
 Inputs:
-- `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/{keys,values}/*_Train.npy`.
-- `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/{keys,values}/*_Test.npy`.
-- `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/calibration_manifest.json`.
+- `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/{keys,values}/*_Train.npy`.
+- `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/{keys,values}/*_Test.npy`.
+- `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/calibration_manifest.json`.
 - Optional baseline codebooks at `/content/qwen3_8B/codebooks_64_128_64`.
 
 Outputs:
 - Versioned LongBench-E codebooks under:
-  - `/content/qwen3_8B/codebooks_64_128_64_longbench_e_held_out_4096_balanced_kpp_noclip/{keys,values}/`
+  - `/content/qwen3_8B/codebooks_64_128_64_longbench_e_{mode}_4096_balanced_kpp_noclip/{keys,values}/`
 - Codebook text files, head maps, cluster summaries, and calibration-derived `static_outlier_masks.json`.
 - Per-side `codebook_mse_report.json`.
 - Optional Drive copy.
