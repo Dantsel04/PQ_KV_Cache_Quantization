@@ -78,6 +78,16 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   returned code 0 and verified exact pinned LongBench-E provenance, 800 unique
   documents across all 13 tasks, a document-disjoint 720/80 split, 36,000/4,000
   train/test vectors per head, all 1,152 arrays, and a matching Drive backup.
+- Contaminated codebook training
+  `pq-contaminated-train-cf73fe9e2f344b23a89d67df2d17db1c` returned code 0
+  after about 213 minutes. Independent audit
+  `pq-contaminated-codebook-audit-2252173ff42240e7bc261206bc3e6c6d`
+  returned code 0 and exhaustively verified both 288-head maps, 64 groups per side,
+  4,096 fine/coarse/LUT artifacts per side, and 576 static masks.
+- Contaminated reconstruction metrics: keys NMSE
+  `0.0036763673336488215` (`0.003374926364974923` with 3 outliers); values NMSE
+  `0.020654950321943002` (`0.020074927513791755` with 3 outliers). These are
+  diagnostic contaminated-calibration metrics, not reportable held-out results.
 
 ## Colab Bridge Contract
 
@@ -112,6 +122,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-longbench-e-full-13d26f49dd214c84bf8f6b46d6f46d20` | Full LongBench-E retry 3 | 130 | User interruption after 64/224 baseline qasper samples; no complete dataset or valid benchmark result. |
 | `pq-contaminated-extract-27437bd820e64c808c864b18b013a61c` | Contaminated calibration extraction | 0 | Extracted exact pinned LongBench-E documents: 800 documents, 36,000 train and 4,000 test vectors per layer/head. |
 | `pq-contaminated-extract-audit-4cd266491e374f89b102ecfd0541dca5` | Contaminated extraction audit | 0 | Verified provenance, all 13 tasks, document separation, 1,152 arrays, finite samples, and matching Drive backup. |
+| `pq-contaminated-train-cf73fe9e2f344b23a89d67df2d17db1c` | Contaminated K/V codebook training | 0 | Trained both 64-bank x 128-codeword sides, produced NMSE reports and 576 static masks, and passed runtime compatibility. |
+| `pq-contaminated-codebook-audit-2252173ff42240e7bc261206bc3e6c6d` | Contaminated codebook audit | 0 | Exhaustively validated both maps, 64 groups per side, all codebook files/LUTs, exact NMSE, and static masks. |
 
 ## Implemented LongBench-E Configuration
 
@@ -149,6 +161,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 
 ## Next Steps for the Goal Chat
 
-1. Train and audit separate contaminated 64-bank x 128-codeword K/V codebooks.
-2. Run and audit a contaminated-codebook smoke test. Keep its scores explicitly
+1. Run and audit a contaminated-codebook smoke test. Keep its scores explicitly
    diagnostic and separate from reportable held-out results.
+2. If PQ smoke scores improve over the prior held-out smoke, run an audited larger
+   diagnostic sized for roughly one hour. If they worsen, perform literature-backed
+   methodology analysis and produce an improvement plan without changing code.
