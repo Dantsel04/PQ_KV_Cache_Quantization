@@ -415,10 +415,13 @@ import glob
 import math
 import mmap
 import random
+import re
 import shutil
 import struct
 import zipfile
 import subprocess
+import hashlib
+from collections import Counter, defaultdict
 
 # Set to False once the session is warm; this re-runs on every execution otherwise.
 INSTALL_DEPS = True
@@ -437,6 +440,7 @@ from transformers import AutoTokenizer
 
 # =====================================================================================
 # Config
+# PQ_BRIDGE_CELL_MARKER: longbench_calibration_extraction_role_aware
 # =====================================================================================
 
 MODEL_DIR = "/content/qwen3_8B"
@@ -446,8 +450,39 @@ if _calibration_mode_env not in {"held_out", "matched", "contaminated"}:
         "PQ_CALIBRATION_MODE must be held_out, matched, or contaminated"
     )
 CALIBRATION_MODE = _calibration_mode_env
+_calibration_variant_env = os.environ.get(
+    "PQ_CALIBRATION_VARIANT", "prior_held_out"
+).strip().lower()
+CALIBRATION_VARIANT_ALIASES = {
+    "": "prior_held_out",
+    "none": "prior_held_out",
+    "held_out": "prior_held_out",
+    "prior": "prior_held_out",
+    "prior_held_out": "prior_held_out",
+    "clean_hotpot_a": "clean_hotpot_a",
+    "hotpot_a": "clean_hotpot_a",
+    "variant_a": "clean_hotpot_a",
+    "clean_suite_b": "clean_suite_b",
+    "suite_b": "clean_suite_b",
+    "variant_b": "clean_suite_b",
+}
+if _calibration_variant_env not in CALIBRATION_VARIANT_ALIASES:
+    raise ValueError(
+        "PQ_CALIBRATION_VARIANT must be prior_held_out, clean_hotpot_a, "
+        "or clean_suite_b"
+    )
+CALIBRATION_VARIANT = CALIBRATION_VARIANT_ALIASES[_calibration_variant_env]
+if CALIBRATION_VARIANT != "prior_held_out" and CALIBRATION_MODE != "held_out":
+    raise ValueError(
+        "Clean calibration variants require PQ_CALIBRATION_MODE=held_out. "
+        "Use the legacy contaminated mode only for diagnostic non-reportable runs."
+    )
+CALIBRATION_OUTPUT_TAG = (
+    CALIBRATION_MODE if CALIBRATION_VARIANT == "prior_held_out"
+    else CALIBRATION_VARIANT
+)
 PQ_OUTPUT_DIR = (
-    f"{MODEL_DIR}/pq_training_data_longbench_e_{CALIBRATION_MODE}_4096"
+    f"{MODEL_DIR}/pq_training_data_longbench_e_{CALIBRATION_OUTPUT_TAG}_4096"
 )
 SHARD_DIR = f"{PQ_OUTPUT_DIR}/_shards"          # per-document, enables resume
 LONGBENCH_ROOT = "/content/longbench_data"
@@ -480,6 +515,156 @@ CALIB_TASK_WEIGHTS = {
     "lsht":                 1,  # classification
 }
 
+ROLE_POSITION_QUOTAS = {
+    "supporting_fact": 15,
+    "bridge_title_entity": 8,
+    "question_instruction": 8,
+    "answer_decode": 4,
+    "uniform_context_distractor": 15,
+}
+
+SOURCE_REVISIONS = {
+    "hotpotqa/hotpot_qa": "1908d6afbbead072334abe2965f91bd2709910ab",
+    "dgslibisey/MuSiQue": "c8f4f8c9465fb69d31a8eae894c3fd509c4ca321",
+    "framolfese/2WikiMultihopQA": "fe713bfbd1afbca1a65246741a75890405d56a3a",
+    "deepmind/narrativeqa": "2e643e7363944af1c33a652d1c87320d0871c4e4",
+}
+
+CALIBRATION_VARIANT_SOURCES = {
+    "clean_hotpot_a": [
+        {
+            "name": "official_hotpotqa_train",
+            "family": "english_multihop_hotpot",
+            "repo_id": "hotpotqa/hotpot_qa",
+            "config": "distractor",
+            "split": "train",
+            "documents": 400,
+            "prompt_task": "hotpotqa",
+            "normalizer": "hotpot",
+            "license": "HotpotQA dataset terms",
+        },
+        {
+            "name": "musique_train",
+            "family": "english_multihop_musique",
+            "repo_id": "dgslibisey/MuSiQue",
+            "config": None,
+            "split": "train",
+            "documents": 160,
+            "prompt_task": "hotpotqa",
+            "normalizer": "musique",
+            "license": "MuSiQue dataset terms",
+        },
+        {
+            "name": "2wikimultihopqa_train",
+            "family": "english_multihop_2wiki",
+            "repo_id": "framolfese/2WikiMultihopQA",
+            "config": None,
+            "split": "train",
+            "documents": 120,
+            "prompt_task": "hotpotqa",
+            "normalizer": "hotpot",
+            "license": "2WikiMultihopQA dataset terms",
+        },
+        {
+            "name": "hotpotqa_hard_distractors_train",
+            "family": "english_wikipedia_hard_distractors",
+            "repo_id": "hotpotqa/hotpot_qa",
+            "config": "distractor",
+            "split": "train",
+            "documents": 80,
+            "prompt_task": "hotpotqa",
+            "normalizer": "hotpot_distractor",
+            "license": "HotpotQA dataset terms",
+        },
+        {
+            "name": "narrativeqa_train",
+            "family": "english_long_form_qa",
+            "repo_id": "deepmind/narrativeqa",
+            "config": None,
+            "split": "train",
+            "documents": 40,
+            "prompt_task": "hotpotqa",
+            "normalizer": "narrativeqa",
+            "license": "NarrativeQA dataset terms",
+        },
+    ],
+    "clean_suite_b": [
+        {
+            "name": "official_hotpotqa_train",
+            "family": "english_multihop_hotpot",
+            "repo_id": "hotpotqa/hotpot_qa",
+            "config": "distractor",
+            "split": "train",
+            "documents": 240,
+            "prompt_task": "hotpotqa",
+            "normalizer": "hotpot",
+            "license": "HotpotQA dataset terms",
+        },
+        {
+            "name": "musique_train",
+            "family": "english_multihop_musique",
+            "repo_id": "dgslibisey/MuSiQue",
+            "config": None,
+            "split": "train",
+            "documents": 100,
+            "prompt_task": "hotpotqa",
+            "normalizer": "musique",
+            "license": "MuSiQue dataset terms",
+        },
+        {
+            "name": "2wikimultihopqa_train",
+            "family": "english_multihop_2wiki",
+            "repo_id": "framolfese/2WikiMultihopQA",
+            "config": None,
+            "split": "train",
+            "documents": 60,
+            "prompt_task": "hotpotqa",
+            "normalizer": "hotpot",
+            "license": "2WikiMultihopQA dataset terms",
+        },
+        {
+            "name": "narrativeqa_train",
+            "family": "english_single_doc_scientific_qa",
+            "repo_id": "deepmind/narrativeqa",
+            "config": None,
+            "split": "train",
+            "documents": 160,
+            "prompt_task": "hotpotqa",
+            "normalizer": "narrativeqa",
+            "license": "NarrativeQA dataset terms",
+        },
+        {
+            "name": "hotpotqa_hard_distractors_train",
+            "family": "english_retrieval_counting",
+            "repo_id": "hotpotqa/hotpot_qa",
+            "config": "distractor",
+            "split": "train",
+            "documents": 120,
+            "prompt_task": "hotpotqa",
+            "normalizer": "hotpot_distractor",
+            "license": "HotpotQA dataset terms",
+        },
+        {
+            "name": "longbench_qmsum_train_proxy",
+            "family": "english_summarization",
+            "legacy_longbench_task": "qmsum",
+            "documents": 80,
+            "prompt_task": "hotpotqa",
+            "normalizer": "longbench_qa_proxy",
+            "license": "LongBench dataset terms",
+        },
+        {
+            "name": "longbench_lcc_train_proxy",
+            "family": "code_or_chinese",
+            "legacy_longbench_task": "lcc",
+            "documents": 40,
+            "prompt_task": "hotpotqa",
+            "normalizer": "longbench_qa_proxy",
+            "license": "LongBench dataset terms",
+        },
+    ],
+}
+
 # Number of DISTINCT DOCUMENTS. This is the number that was too low before (56).
 # Memory does not scale with it -- VECTORS_PER_HEAD is fixed and positions per
 # document are derived by division. Ceiling is the pool size: most LongBench tasks
@@ -487,10 +672,11 @@ CALIB_TASK_WEIGHTS = {
 NUM_CALIB_SAMPLES = 800
 
 MAX_INPUT_LENGTH = 4096              # exactly matches the eval harness
+TEACHER_FORCE_ANSWER_TOKENS = 16
 VECTORS_PER_HEAD = 40000             # per layer/head, before the train/test split
 TEST_FRACTION = 0.10                 # fraction of DOCUMENTS held out for the MSE gate
 SAVE_DTYPE = np.float16              # trainer upcasts to f32 on load
-SEED = 0
+SEED = int(os.environ.get("PQ_CALIBRATION_SEED", "0"))
 
 CHECKPOINT_RESUME = True             # skip documents whose shard already exists
 DELETE_SHARDS_AFTER = False          # set True to reclaim ~3GB once assembly succeeds
@@ -498,7 +684,7 @@ DELETE_SHARDS_AFTER = False          # set True to reclaim ~3GB once assembly su
 BACKUP_TO_DRIVE = True
 DRIVE_PQ_PATH = (
     "/content/drive/MyDrive/qwen3_8B/"
-    f"pq_training_data_longbench_e_{CALIBRATION_MODE}_4096"
+    f"pq_training_data_longbench_e_{CALIBRATION_OUTPUT_TAG}_4096"
 )
 
 
@@ -583,17 +769,434 @@ def load_longbench_task(name, root=LONGBENCH_ROOT):
         return [json.loads(line) for line in f if line.strip()]
 
 
+def load_longbench_e_task(name):
+    """Load the immutable LongBench-E evaluation shard used for decontamination."""
+    from datasets import load_dataset
+    from huggingface_hub import HfApi, hf_hub_download
+
+    config_name = f"{name}_e"
+    global _LONGBENCH_E_REPO_FILES
+    if _LONGBENCH_E_REPO_FILES is None:
+        api = HfApi()
+        _LONGBENCH_E_REPO_FILES = api.list_repo_files(
+            "zai-org/LongBench",
+            repo_type="dataset",
+            revision=LONGBENCH_E_REVISION,
+        )
+    shard_names = sorted(
+        filename for filename in _LONGBENCH_E_REPO_FILES
+        if filename.startswith(f"{config_name}/") and filename.endswith(".parquet")
+    )
+    if not shard_names:
+        raise FileNotFoundError(
+            f"No Parquet shards for {config_name} at {LONGBENCH_E_REVISION}"
+        )
+    paths = [
+        hf_hub_download(
+            "zai-org/LongBench",
+            filename=filename,
+            repo_type="dataset",
+            revision=LONGBENCH_E_REVISION,
+            token=False,
+        )
+        for filename in shard_names
+    ]
+    dataset = load_dataset("parquet", data_files={"test": paths}, split="test")
+    return [dict(row) for row in dataset]
+
+
+def load_pinned_training_rows(spec):
+    if "legacy_longbench_task" in spec:
+        return load_longbench_task(spec["legacy_longbench_task"])
+
+    from datasets import load_dataset
+
+    repo_id = spec["repo_id"]
+    revision = SOURCE_REVISIONS.get(repo_id)
+    if revision is None:
+        raise ValueError(f"No pinned revision configured for {repo_id}")
+    args = [repo_id]
+    if spec.get("config"):
+        args.append(spec["config"])
+    ds = load_dataset(*args, split=spec["split"], revision=revision)
+    return [dict(row) for row in ds]
+
+
 def load_dataset2prompt():
     import urllib.request
     with urllib.request.urlopen(DATASET2PROMPT_URL, timeout=20) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
+def normalize_for_match(text):
+    if text is None:
+        return ""
+    if isinstance(text, (list, tuple)):
+        text = " ".join(str(x) for x in text)
+    text = str(text).lower()
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"[^\w\s]", "", text)
+    return text.strip()
+
+
+def short_hash(text):
+    return hashlib.sha1(normalize_for_match(text).encode("utf-8")).hexdigest()
+
+
+def first_present(row, names, default=""):
+    for name in names:
+        if name not in row:
+            continue
+        value = row[name]
+        if value is None:
+            continue
+        if isinstance(value, str) and value == "":
+            continue
+        if isinstance(value, (list, tuple, np.ndarray)) and len(value) == 0:
+            continue
+        return value
+    return default
+
+
+def coerce_answers(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        for key in ("text", "answer", "answers"):
+            if key in value:
+                return coerce_answers(value[key])
+        return [json.dumps(value, sort_keys=True)]
+    if isinstance(value, (list, tuple, np.ndarray)):
+        answers = []
+        for item in value:
+            answers.extend(coerce_answers(item))
+        return [str(x) for x in answers if str(x).strip()]
+    return [str(value)]
+
+
+def hotpot_context_parts(row):
+    context = row.get("context", {})
+    titles = []
+    paragraphs = []
+    if isinstance(context, dict):
+        titles = list(context.get("title", []) or [])
+        sentences = list(context.get("sentences", []) or [])
+        for title, sent_list in zip(titles, sentences):
+            if isinstance(sent_list, str):
+                sent_list = [sent_list]
+            text = " ".join(str(s) for s in (sent_list or []) if str(s).strip())
+            paragraphs.append({"title": str(title), "sentences": list(sent_list or []), "text": text})
+    elif isinstance(context, list):
+        for item in context:
+            if isinstance(item, dict):
+                title = str(first_present(item, ["title", "name"], ""))
+                text = str(first_present(item, ["paragraph_text", "text", "context"], ""))
+                paragraphs.append({"title": title, "sentences": [text], "text": text})
+                titles.append(title)
+            elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                title = str(item[0])
+                sent_list = item[1] if isinstance(item[1], (list, tuple)) else [item[1]]
+                text = " ".join(str(s) for s in sent_list if str(s).strip())
+                paragraphs.append({"title": title, "sentences": list(sent_list), "text": text})
+                titles.append(title)
+    context_text = "\n\n".join(
+        f"{p['title']}: {p['text']}" if p["title"] else p["text"]
+        for p in paragraphs
+        if p["text"]
+    )
+    return titles, paragraphs, context_text
+
+
+def extract_support_texts(row, paragraphs):
+    support = row.get("supporting_facts") or row.get("supports") or {}
+    titles = []
+    sent_ids = []
+    if isinstance(support, dict):
+        titles = list(support.get("title", []) or [])
+        sent_ids = list(support.get("sent_id", []) or support.get("sent_ids", []) or [])
+    elif isinstance(support, list):
+        for item in support:
+            if isinstance(item, dict):
+                titles.append(str(first_present(item, ["title"], "")))
+                sent_ids.append(first_present(item, ["sent_id", "sentence_id"], None))
+            elif isinstance(item, (list, tuple)) and item:
+                titles.append(str(item[0]))
+                sent_ids.append(item[1] if len(item) > 1 else None)
+
+    by_title = {normalize_for_match(p["title"]): p for p in paragraphs}
+    support_texts = []
+    for title, sent_id in zip(titles, sent_ids or [None] * len(titles)):
+        para = by_title.get(normalize_for_match(title))
+        if not para:
+            continue
+        sentences = para.get("sentences", [])
+        try:
+            sid = int(sent_id)
+        except (TypeError, ValueError):
+            sid = None
+        if sid is not None and 0 <= sid < len(sentences):
+            support_texts.append(str(sentences[sid]))
+        elif para.get("text"):
+            support_texts.append(str(para["text"]))
+    return support_texts, [str(t) for t in titles if str(t).strip()]
+
+
+def normalize_hotpot_like(row, spec, source_position):
+    titles, paragraphs, context_text = hotpot_context_parts(row)
+    support_texts, support_titles = extract_support_texts(row, paragraphs)
+    question = str(first_present(row, ["question", "input", "query"], ""))
+    answers = coerce_answers(first_present(row, ["answer", "answers"], ""))
+    source_id = str(first_present(row, ["id", "_id", "qid"], source_position))
+    if spec.get("normalizer") == "hotpot_distractor":
+        support_title_norm = {normalize_for_match(t) for t in support_titles}
+        distractors = [
+            p for p in paragraphs
+            if normalize_for_match(p.get("title", "")) not in support_title_norm
+        ]
+        if distractors:
+            context_text = "\n\n".join(
+                f"{p['title']}: {p['text']}" if p["title"] else p["text"]
+                for p in distractors
+                if p["text"]
+            )
+    return {
+        "context": context_text,
+        "input": question,
+        "answers": answers,
+        "answer": answers[0] if answers else "",
+        "_prompt_task": spec["prompt_task"],
+        "_source_dataset": spec["name"],
+        "_source_family": spec["family"],
+        "_source_split": spec["split"],
+        "_source_repo": spec.get("repo_id", "longbench_v1"),
+        "_source_revision": SOURCE_REVISIONS.get(spec.get("repo_id"), "longbench_v1_data_zip"),
+        "_source_id": source_id,
+        "_source_license": spec.get("license", ""),
+        "_answer_type": str(first_present(row, ["type", "answer_type"], "")),
+        "_supporting_titles": sorted({t for t in support_titles if t}),
+        "_supporting_texts": support_texts,
+        "_all_titles": sorted({t for t in titles if t}),
+        "_paragraph_hashes": [short_hash(p["text"]) for p in paragraphs if p.get("text")],
+        "_raw_index": int(source_position),
+    }
+
+
+def normalize_musique(row, spec, source_position):
+    paragraphs = []
+    for p in row.get("paragraphs", []) or row.get("contexts", []) or []:
+        if not isinstance(p, dict):
+            continue
+        title = str(first_present(p, ["title", "paragraph_title"], ""))
+        text = str(first_present(p, ["paragraph_text", "text", "context"], ""))
+        paragraphs.append({
+            "title": title,
+            "sentences": [text],
+            "text": text,
+            "is_supporting": bool(first_present(p, ["is_supporting", "supporting"], False)),
+        })
+    context_text = "\n\n".join(
+        f"{p['title']}: {p['text']}" if p["title"] else p["text"]
+        for p in paragraphs
+        if p["text"]
+    )
+    question = str(first_present(row, ["question", "input"], ""))
+    answers = coerce_answers(first_present(row, ["answer", "answers", "answer_aliases"], ""))
+    support_texts = [p["text"] for p in paragraphs if p.get("is_supporting") and p.get("text")]
+    support_titles = [p["title"] for p in paragraphs if p.get("is_supporting") and p.get("title")]
+    source_id = str(first_present(row, ["id", "_id", "qid"], source_position))
+    return {
+        "context": context_text,
+        "input": question,
+        "answers": answers,
+        "answer": answers[0] if answers else "",
+        "_prompt_task": spec["prompt_task"],
+        "_source_dataset": spec["name"],
+        "_source_family": spec["family"],
+        "_source_split": spec["split"],
+        "_source_repo": spec.get("repo_id", "longbench_v1"),
+        "_source_revision": SOURCE_REVISIONS.get(spec.get("repo_id"), "longbench_v1_data_zip"),
+        "_source_id": source_id,
+        "_source_license": spec.get("license", ""),
+        "_answer_type": "multihop",
+        "_supporting_titles": sorted({t for t in support_titles if t}),
+        "_supporting_texts": support_texts,
+        "_all_titles": sorted({p["title"] for p in paragraphs if p.get("title")}),
+        "_paragraph_hashes": [short_hash(p["text"]) for p in paragraphs if p.get("text")],
+        "_raw_index": int(source_position),
+    }
+
+
+def normalize_narrativeqa(row, spec, source_position):
+    document = row.get("document", {})
+    if isinstance(document, dict):
+        context_text = str(first_present(
+            document,
+            ["text", "summary", "story", "document", "kind"],
+            "",
+        ))
+        title = str(first_present(document, ["title", "id"], ""))
+    else:
+        context_text = str(document)
+        title = ""
+    question_obj = row.get("question", "")
+    question = (
+        str(first_present(question_obj, ["text", "question"], ""))
+        if isinstance(question_obj, dict) else str(question_obj)
+    )
+    answers = coerce_answers(first_present(row, ["answers", "answer"], ""))
+    source_id = str(first_present(row, ["id", "_id", "qid"], source_position))
+    return {
+        "context": context_text,
+        "input": question,
+        "answers": answers,
+        "answer": answers[0] if answers else "",
+        "_prompt_task": spec["prompt_task"],
+        "_source_dataset": spec["name"],
+        "_source_family": spec["family"],
+        "_source_split": spec["split"],
+        "_source_repo": spec.get("repo_id", "longbench_v1"),
+        "_source_revision": SOURCE_REVISIONS.get(spec.get("repo_id"), "longbench_v1_data_zip"),
+        "_source_id": source_id,
+        "_source_license": spec.get("license", ""),
+        "_answer_type": "long_form",
+        "_supporting_titles": [title] if title else [],
+        "_supporting_texts": [],
+        "_all_titles": [title] if title else [],
+        "_paragraph_hashes": [short_hash(context_text)] if context_text else [],
+        "_raw_index": int(source_position),
+    }
+
+
+def normalize_variant_row(row, spec, source_position):
+    normalizer = spec.get("normalizer", "hotpot")
+    if normalizer == "musique":
+        return normalize_musique(row, spec, source_position)
+    if normalizer == "narrativeqa":
+        return normalize_narrativeqa(row, spec, source_position)
+    if normalizer == "longbench_qa_proxy":
+        proxy = {
+            "context": first_present(row, ["context", "document"], ""),
+            "question": first_present(row, ["input", "question"], ""),
+            "answers": first_present(row, ["answers", "answer"], ""),
+            "id": first_present(row, ["_id", "id"], source_position),
+        }
+        return normalize_hotpot_like(proxy, spec, source_position)
+    return normalize_hotpot_like(row, spec, source_position)
+
+
+def decontamination_signatures(sample):
+    question = normalize_for_match(first_present(sample, ["input", "question"], ""))
+    answers = sorted({normalize_for_match(a) for a in coerce_answers(sample.get("answers") or sample.get("answer")) if a})
+    source_id = normalize_for_match(first_present(sample, ["_source_id", "_id", "id"], ""))
+    titles = tuple(sorted({
+        normalize_for_match(t)
+        for t in sample.get("_supporting_titles", []) or []
+        if normalize_for_match(t)
+    }))
+    paragraph_hashes = set(sample.get("_paragraph_hashes", []) or [])
+    context_hash = short_hash(first_present(sample, ["context"], ""))
+    qa_pairs = {(question, answer) for answer in answers if question and answer}
+    return {
+        "source_id": source_id,
+        "question": question,
+        "answers": answers,
+        "qa_pairs": qa_pairs,
+        "supporting_titles": titles,
+        "paragraph_hashes": paragraph_hashes,
+        "context_hash": context_hash,
+    }
+
+
+def build_longbench_e_decontamination_index():
+    index = {
+        "source_ids": set(),
+        "questions": set(),
+        "qa_pairs": set(),
+        "supporting_title_sets": set(),
+        "paragraph_hashes": set(),
+        "context_hashes": set(),
+        "context_shingles": [],
+        "documents": 0,
+    }
+    for task in EVAL_TASKS:
+        for row in load_longbench_e_task(task):
+            sample = {
+                "_source_id": first_present(row, ["_id", "id"], ""),
+                "input": first_present(row, ["input", "question"], ""),
+                "answers": coerce_answers(row.get("answers") or row.get("answer")),
+                "context": first_present(row, ["context"], ""),
+                "_supporting_titles": row.get("supporting_facts", {}).get("title", [])
+                if isinstance(row.get("supporting_facts"), dict) else [],
+                "_paragraph_hashes": [short_hash(first_present(row, ["context"], ""))],
+            }
+            sig = decontamination_signatures(sample)
+            if sig["source_id"]:
+                index["source_ids"].add(sig["source_id"])
+            if sig["question"]:
+                index["questions"].add(sig["question"])
+            index["qa_pairs"].update(sig["qa_pairs"])
+            if sig["supporting_titles"]:
+                index["supporting_title_sets"].add(sig["supporting_titles"])
+            index["paragraph_hashes"].update(sig["paragraph_hashes"])
+            index["context_hashes"].add(sig["context_hash"])
+            context_norm = normalize_for_match(sample["context"])
+            shingles = {
+                context_norm[i:i + 80]
+                for i in range(0, max(len(context_norm) - 79, 0), 40)
+            }
+            if shingles:
+                index["context_shingles"].append((task, shingles))
+            index["documents"] += 1
+    return index
+
+
+def near_duplicate_reason(sample, decon_index, threshold=0.82):
+    context_norm = normalize_for_match(sample.get("context", ""))
+    shingles = {
+        context_norm[i:i + 80]
+        for i in range(0, max(len(context_norm) - 79, 0), 40)
+    }
+    if not shingles:
+        return None
+    for task, eval_shingles in decon_index["context_shingles"]:
+        union = len(shingles | eval_shingles)
+        if union == 0:
+            continue
+        score = len(shingles & eval_shingles) / union
+        if score >= threshold:
+            return f"near_duplicate_context:{task}:{score:.3f}"
+    return None
+
+
+def decontamination_reasons(sample, decon_index):
+    sig = decontamination_signatures(sample)
+    reasons = []
+    if sig["source_id"] and sig["source_id"] in decon_index["source_ids"]:
+        reasons.append("source_id")
+    if sig["question"] and sig["question"] in decon_index["questions"]:
+        reasons.append("normalized_question")
+    if sig["qa_pairs"] & decon_index["qa_pairs"]:
+        reasons.append("question_answer_pair")
+    if sig["supporting_titles"] and sig["supporting_titles"] in decon_index["supporting_title_sets"]:
+        reasons.append("supporting_title_set")
+    if sig["paragraph_hashes"] & decon_index["paragraph_hashes"]:
+        reasons.append("paragraph_hash")
+    if sig["context_hash"] in decon_index["context_hashes"]:
+        reasons.append("context_hash")
+    near = near_duplicate_reason(sample, decon_index)
+    if near:
+        reasons.append(near)
+    return reasons
+
+
 def build_prompt(sample, dataset, tokenizer, prompts, max_length=MAX_INPUT_LENGTH):
     """Return token IDs using the evaluator's template/chat/truncation order."""
-    prompt = prompts[dataset].format(**sample)
+    prompt_task = sample.get("_prompt_task", dataset)
+    prompt = prompts[prompt_task].format(**sample)
     used_chat_template = False
-    if dataset not in NO_CHAT_TEMPLATE:
+    if prompt_task not in NO_CHAT_TEMPLATE:
         try:
             prompt = tokenizer.apply_chat_template(
                 [{"role": "user", "content": prompt}], tokenize=False,
@@ -661,6 +1264,9 @@ def select_calibration_samples():
     """Returns [(task, sample_index, sample)] honouring the contamination mode."""
     rng = random.Random(SEED)
 
+    if CALIBRATION_VARIANT != "prior_held_out":
+        return select_variant_calibration_samples(rng)
+
     if CALIBRATION_MODE == "held_out":
         pool_tasks = [t for t in CALIB_TASK_WEIGHTS if t not in EVAL_TASKS]
         dropped = [t for t in CALIB_TASK_WEIGHTS if t in EVAL_TASKS]
@@ -713,6 +1319,127 @@ def select_calibration_samples():
     # task-balanced set rather than whichever task happens to be last.
     rng.shuffle(chosen)
     return chosen
+
+
+def validate_variant_source_mix(variant):
+    specs = CALIBRATION_VARIANT_SOURCES[variant]
+    total = sum(int(spec["documents"]) for spec in specs)
+    if total != NUM_CALIB_SAMPLES:
+        raise ValueError(
+            f"{variant} source mix sums to {total}, expected {NUM_CALIB_SAMPLES}"
+        )
+    return specs
+
+
+def select_variant_calibration_samples(rng):
+    """Select clean official-training-split calibration rows for Variant A/B."""
+    specs = validate_variant_source_mix(CALIBRATION_VARIANT)
+    decon_index = build_longbench_e_decontamination_index()
+
+    chosen = []
+    rejected_rows = []
+    accepted_signatures = set()
+    source_reports = []
+
+    for spec in specs:
+        raw_rows = load_pinned_training_rows(spec)
+        order = list(range(len(raw_rows)))
+        rng.shuffle(order)
+        target = int(spec["documents"])
+        accepted = 0
+        rejected_by_reason = Counter()
+
+        for source_position in order:
+            if accepted >= target:
+                break
+            try:
+                sample = normalize_variant_row(raw_rows[source_position], spec, source_position)
+            except Exception as exc:
+                rejected_by_reason["normalization_error"] += 1
+                rejected_rows.append({
+                    "variant": CALIBRATION_VARIANT,
+                    "source_dataset": spec["name"],
+                    "source_position": int(source_position),
+                    "reasons": [f"normalization_error:{type(exc).__name__}"],
+                })
+                continue
+
+            sig = decontamination_signatures(sample)
+            local_key = (
+                sig["question"],
+                tuple(sig["answers"]),
+                tuple(sorted(sample.get("_supporting_titles", []))),
+            )
+            reasons = decontamination_reasons(sample, decon_index)
+            if local_key in accepted_signatures:
+                reasons.append("duplicate_within_calibration_selection")
+            if reasons:
+                for reason in reasons:
+                    rejected_by_reason[reason.split(":")[0]] += 1
+                rejected_rows.append({
+                    "variant": CALIBRATION_VARIANT,
+                    "source_dataset": spec["name"],
+                    "source_split": spec.get("split"),
+                    "source_id": sample.get("_source_id"),
+                    "source_position": int(source_position),
+                    "reasons": reasons,
+                })
+                continue
+
+            sample["_decontamination"] = {
+                "status": "accepted",
+                "checked_against": f"zai-org/LongBench@{LONGBENCH_E_REVISION}",
+                "rules": [
+                    "source_id",
+                    "normalized_question",
+                    "question_answer_pair",
+                    "supporting_title_set",
+                    "paragraph_hash",
+                    "context_hash",
+                    "near_duplicate_context_shingles_jaccard_0.82",
+                ],
+            }
+            sample["_variant"] = CALIBRATION_VARIANT
+            task = sample.get("_source_dataset", spec["name"])
+            sample_idx = f"{spec['name']}__{source_position}"
+            chosen.append((task, sample_idx, sample))
+            accepted_signatures.add(local_key)
+            accepted += 1
+
+        if accepted < target:
+            raise RuntimeError(
+                f"{spec['name']} supplied {accepted}/{target} decontaminated rows. "
+                "Redistribute only within the same functional family and record the change."
+            )
+        source_reports.append({
+            "source_dataset": spec["name"],
+            "source_family": spec["family"],
+            "repo_id": spec.get("repo_id", "longbench_v1"),
+            "source_revision": SOURCE_REVISIONS.get(spec.get("repo_id"), "longbench_v1_data_zip"),
+            "source_split": spec.get("split"),
+            "requested_documents": target,
+            "accepted_documents": accepted,
+            "rejected_counts": dict(rejected_by_reason),
+        })
+
+    rng.shuffle(chosen)
+    select_variant_calibration_samples.last_report = {
+        "variant": CALIBRATION_VARIANT,
+        "longbench_e_revision": LONGBENCH_E_REVISION,
+        "longbench_e_documents_indexed": decon_index["documents"],
+        "source_reports": source_reports,
+        "rejected_examples": rejected_rows,
+        "rejected_counts": dict(Counter(
+            reason.split(":")[0]
+            for row in rejected_rows
+            for reason in row.get("reasons", [])
+        )),
+        "near_duplicate_threshold": 0.82,
+    }
+    return chosen
+
+
+select_variant_calibration_samples.last_report = None
 
 
 # =====================================================================================
@@ -921,7 +1648,178 @@ class QwenForCausalLM(nn.Module):
 # =====================================================================================
 
 def shard_path(task, sample_idx):
-    return os.path.join(SHARD_DIR, f"{task}__{int(sample_idx):06d}.npz")
+    safe_task = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(task))
+    safe_idx = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(sample_idx))
+    if str(sample_idx).isdigit():
+        safe_idx = f"{int(sample_idx):06d}"
+    return os.path.join(SHARD_DIR, f"{safe_task}__{safe_idx}.npz")
+
+
+def middle_truncate_tokenized(token_ids, offsets, max_length):
+    if len(token_ids) <= max_length:
+        return list(token_ids), list(offsets)
+    first = max_length // 2
+    keep = list(range(first)) + list(range(len(token_ids) - (max_length - first), len(token_ids)))
+    return [token_ids[i] for i in keep], [offsets[i] for i in keep]
+
+
+def find_spans(haystack, needles):
+    spans = []
+    hay_lower = haystack.lower()
+    for needle in needles:
+        if not needle:
+            continue
+        needle = str(needle).strip()
+        if len(needle) < 2:
+            continue
+        start = 0
+        needle_lower = needle.lower()
+        while True:
+            idx = hay_lower.find(needle_lower, start)
+            if idx < 0:
+                break
+            spans.append((idx, idx + len(needle)))
+            start = idx + max(1, len(needle))
+    return spans
+
+
+def role_for_offset(start, end, role_spans):
+    if start == end:
+        return None
+    for role in ["supporting_fact", "bridge_title_entity", "question_instruction"]:
+        for span_start, span_end in role_spans.get(role, []):
+            if start < span_end and end > span_start:
+                return role
+    return "uniform_context_distractor"
+
+
+def build_capture_inputs_and_roles(sample, dataset, tokenizer, prompts):
+    prompt_task = sample.get("_prompt_task", dataset)
+    prompt = prompts[prompt_task].format(**sample)
+    used_chat_template = False
+    if prompt_task not in NO_CHAT_TEMPLATE:
+        try:
+            prompt = tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}],
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except TypeError:
+            prompt = tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}],
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        used_chat_template = True
+
+    enc = tokenizer(
+        prompt,
+        add_special_tokens=not used_chat_template,
+        return_offsets_mapping=True,
+    )
+    token_ids, offsets = middle_truncate_tokenized(
+        enc["input_ids"],
+        enc.get("offset_mapping", [(0, 0)] * len(enc["input_ids"])),
+        MAX_INPUT_LENGTH,
+    )
+
+    support_texts = sample.get("_supporting_texts", []) or []
+    titles = sample.get("_supporting_titles", []) or sample.get("_all_titles", []) or []
+    role_spans = {
+        "supporting_fact": find_spans(prompt, support_texts),
+        "bridge_title_entity": find_spans(prompt, titles),
+        "question_instruction": find_spans(
+            prompt,
+            [
+                sample.get("input", ""),
+                "Question:",
+                "Answer the question",
+                "Only give me the answer",
+            ],
+        ),
+    }
+
+    roles = []
+    titles_for_token = []
+    for start, end in offsets:
+        role = role_for_offset(int(start), int(end), role_spans)
+        roles.append(role or "uniform_context_distractor")
+        title = ""
+        if role == "bridge_title_entity":
+            fragment = prompt[int(start):int(end)].lower()
+            for candidate in titles:
+                if fragment and fragment in str(candidate).lower():
+                    title = str(candidate)
+                    break
+        titles_for_token.append(title)
+
+    answer_text = " " + str(sample.get("answer", "") or "")
+    answer_ids = tokenizer.encode(answer_text, add_special_tokens=False)
+    if answer_ids:
+        answer_ids = answer_ids[:TEACHER_FORCE_ANSWER_TOKENS]
+        token_ids = list(token_ids) + answer_ids
+        roles.extend(["answer_decode"] * len(answer_ids))
+        titles_for_token.extend([""] * len(answer_ids))
+
+    return list(token_ids), roles, titles_for_token, len(offsets)
+
+
+def scaled_role_quotas(per_sample):
+    base_total = sum(ROLE_POSITION_QUOTAS.values())
+    quotas = {
+        role: int(math.floor(per_sample * count / base_total))
+        for role, count in ROLE_POSITION_QUOTAS.items()
+    }
+    remaining = per_sample - sum(quotas.values())
+    order = sorted(
+        ROLE_POSITION_QUOTAS,
+        key=lambda role: ROLE_POSITION_QUOTAS[role],
+        reverse=True,
+    )
+    idx = 0
+    while remaining > 0:
+        quotas[order[idx % len(order)]] += 1
+        remaining -= 1
+        idx += 1
+    return quotas
+
+
+def choose_role_aware_positions(roles, per_sample, rng):
+    role_to_positions = defaultdict(list)
+    for pos, role in enumerate(roles):
+        role_to_positions[role].append(pos)
+
+    keep = []
+    shortfalls = {}
+    quotas = scaled_role_quotas(per_sample)
+    for role, quota in quotas.items():
+        candidates = [p for p in role_to_positions.get(role, []) if p not in keep]
+        if len(candidates) >= quota:
+            take = rng.choice(candidates, size=quota, replace=False).tolist()
+        else:
+            take = list(candidates)
+            shortfalls[role] = int(quota - len(take))
+        keep.extend(int(x) for x in take)
+
+    if len(keep) < per_sample:
+        used = set(keep)
+        fallback = [i for i in range(len(roles)) if i not in used]
+        need = per_sample - len(keep)
+        if len(fallback) >= need:
+            keep.extend(int(x) for x in rng.choice(fallback, size=need, replace=False).tolist())
+        elif fallback:
+            keep.extend(int(x) for x in fallback)
+
+    keep = sorted(set(int(x) for x in keep))
+    if len(keep) > per_sample:
+        keep = sorted(rng.choice(keep, size=per_sample, replace=False).tolist())
+    if len(keep) < min(per_sample, len(roles)):
+        raise RuntimeError(
+            f"Role-aware sampler selected only {len(keep)} unique positions "
+            f"from {len(roles)} available tokens"
+        )
+    return np.array(keep, dtype=np.int64), shortfalls, quotas
 
 
 @torch.no_grad()
@@ -956,22 +1854,22 @@ def extract_shards(model, tokenizer, prompts, chosen):
             skipped += 1
             continue
 
-        prompt_ids = build_prompt(sample, task, tokenizer, prompts, MAX_INPUT_LENGTH)
+        prompt_ids, roles, token_titles, prompt_token_count = build_capture_inputs_and_roles(
+            sample, task, tokenizer, prompts
+        )
         input_ids = torch.tensor([prompt_ids], dtype=torch.long)
         seq_len = input_ids.shape[1]
 
-        if seq_len < per_sample:
-            keep = np.resize(np.arange(seq_len), per_sample)   # short doc: repeats
-        else:
-            keep = rng.choice(seq_len, size=per_sample, replace=False)
-        keep = np.sort(keep)
+        keep, role_shortfalls, role_quotas = choose_role_aware_positions(
+            roles, min(per_sample, seq_len), rng
+        )
         keep_idx = torch.tensor(keep, device=device, dtype=torch.long)
 
         try:
             all_kvs = model(input_ids.to(device), keep_idx)
         except torch.cuda.OutOfMemoryError:
             print(f"\n  OOM on {task}[{sample_idx}] at {seq_len} tokens; skipping")
-            failed.append((task, int(sample_idx), "oom"))
+            failed.append((task, str(sample_idx), "oom"))
             gc.collect(); torch.cuda.empty_cache()
             continue
 
@@ -982,8 +1880,27 @@ def extract_shards(model, tokenizer, prompts, chosen):
         # that resume would then trust.
         tmp_path = out_path + ".tmp"
         np.savez(tmp_path, k=k_stack, v=v_stack,
-                 task=np.array(task), sample_index=np.array(int(sample_idx)),
-                 prompt_tokens=np.array(int(seq_len)))
+                 task=np.array(task), sample_index=np.array(str(sample_idx)),
+                 sample_key=np.array(str(sample_idx)),
+                 prompt_tokens=np.array(int(prompt_token_count)),
+                 capture_tokens=np.array(int(seq_len)),
+                 role=np.array([roles[int(pos)] for pos in keep], dtype=object),
+                 token_offset=np.array(keep, dtype=np.int32),
+                 paragraph_title=np.array([token_titles[int(pos)] for pos in keep], dtype=object),
+                 variant=np.array(CALIBRATION_VARIANT),
+                 calibration_mode=np.array(CALIBRATION_MODE),
+                 source_dataset=np.array(sample.get("_source_dataset", task)),
+                 source_family=np.array(sample.get("_source_family", task)),
+                 source_split=np.array(sample.get("_source_split", "")),
+                 source_id=np.array(sample.get("_source_id", str(sample_idx))),
+                 source_revision=np.array(sample.get("_source_revision", "")),
+                 source_license=np.array(sample.get("_source_license", "")),
+                 answer_type=np.array(sample.get("_answer_type", "")),
+                 decontamination_status=np.array(
+                     (sample.get("_decontamination") or {}).get("status", "legacy")
+                 ),
+                 role_shortfalls=np.array(json.dumps(role_shortfalls)),
+                 role_quotas=np.array(json.dumps(role_quotas)))
         os.replace(tmp_path + ".npz" if os.path.exists(tmp_path + ".npz") else tmp_path,
                    out_path)
 
@@ -1006,12 +1923,16 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
     if not present:
         raise RuntimeError("No shards found. Did extraction run?")
 
-    probe = np.load(shard_path(present[0][0], present[0][1]))
+    probe = np.load(shard_path(present[0][0], present[0][1]), allow_pickle=True)
     num_layers, num_kv_heads, _, head_dim = probe["k"].shape
     probe.close()
 
     n_docs = len(present)
-    total_slots = n_docs * per_sample
+    shard_lengths = []
+    for task, sample_idx, _ in present:
+        with np.load(shard_path(task, sample_idx), allow_pickle=True) as z:
+            shard_lengths.append(int(z["k"].shape[2]))
+    total_slots = int(sum(shard_lengths))
     est_gb = num_layers * num_kv_heads * total_slots * head_dim * 2 * 2 / 1e9
     print(f"  assembling {n_docs} documents -> {total_slots} vectors per layer/head")
     print(f"  ~{est_gb:.1f} GB held in RAM as float16 during assembly")
@@ -1020,19 +1941,64 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
     val_buf = np.zeros_like(key_buf)
 
     doc_rows = []
-    for d, (task, sample_idx, _) in enumerate(tqdm(present, desc="Loading shards")):
-        with np.load(shard_path(task, sample_idx)) as z:
-            start, end = d * per_sample, (d + 1) * per_sample
+    slot_metadata = []
+    cursor = 0
+
+    def z_scalar(z, key, default=""):
+        if key not in z.files:
+            return default
+        value = z[key]
+        try:
+            return value.item()
+        except ValueError:
+            return value.tolist()
+
+    for d, (task, sample_idx, sample) in enumerate(tqdm(present, desc="Loading shards")):
+        with np.load(shard_path(task, sample_idx), allow_pickle=True) as z:
+            actual_positions = int(z["k"].shape[2])
+            start, end = cursor, cursor + actual_positions
             key_buf[:, :, start:end, :] = z["k"]
             val_buf[:, :, start:end, :] = z["v"]
+            roles = [str(x) for x in z["role"].tolist()]
+            token_offsets = [int(x) for x in z["token_offset"].tolist()]
+            titles = [str(x) for x in z["paragraph_title"].tolist()]
+            for local_idx in range(actual_positions):
+                slot_metadata.append({
+                    "global_slot": int(start + local_idx),
+                    "task": task,
+                    "variant": str(z_scalar(z, "variant", CALIBRATION_VARIANT)),
+                    "calibration_mode": str(z_scalar(z, "calibration_mode", CALIBRATION_MODE)),
+                    "source_dataset": str(z_scalar(z, "source_dataset", task)),
+                    "source_family": str(z_scalar(z, "source_family", task)),
+                    "source_split": str(z_scalar(z, "source_split", "")),
+                    "source_id": str(z_scalar(z, "source_id", sample_idx)),
+                    "source_revision": str(z_scalar(z, "source_revision", "")),
+                    "source_license": str(z_scalar(z, "source_license", "")),
+                    "position_role": roles[local_idx],
+                    "token_offset": token_offsets[local_idx],
+                    "paragraph_title": titles[local_idx],
+                    "answer_type": str(z_scalar(z, "answer_type", "")),
+                    "decontamination_status": str(z_scalar(z, "decontamination_status", "legacy")),
+                    "document_ordinal": int(d),
+                })
             doc_rows.append({
                 "task": task,
-                "sample_index": int(sample_idx),
+                "sample_index": str(sample_idx),
+                "source_dataset": str(z_scalar(z, "source_dataset", task)),
+                "source_family": str(z_scalar(z, "source_family", task)),
+                "source_split": str(z_scalar(z, "source_split", "")),
+                "source_id": str(z_scalar(z, "source_id", sample_idx)),
+                "source_revision": str(z_scalar(z, "source_revision", "")),
+                "source_license": str(z_scalar(z, "source_license", "")),
                 "prompt_tokens": int(z["prompt_tokens"]),
-                "positions_kept": int(per_sample),
+                "capture_tokens": int(z_scalar(z, "capture_tokens", int(z["prompt_tokens"]))),
+                "positions_kept": int(actual_positions),
                 "slot_start": int(start),
                 "slot_end": int(end),
+                "role_counts": dict(Counter(roles)),
+                "role_shortfalls": json.loads(str(z_scalar(z, "role_shortfalls", "{}"))),
             })
+            cursor = end
 
     # ---- DOCUMENT-level split -------------------------------------------------------
     # `present` follows the shuffled `chosen` order, so the tail is already a random,
@@ -1044,8 +2010,9 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
     if n_train_docs < 1:
         raise ValueError("TEST_FRACTION leaves no training documents.")
 
-    train_slots = np.arange(0, n_train_docs * per_sample)
-    test_slots = np.arange(n_train_docs * per_sample, total_slots)
+    train_end = int(sum(shard_lengths[:n_train_docs]))
+    train_slots = np.arange(0, train_end)
+    test_slots = np.arange(train_end, total_slots)
 
     for d, row in enumerate(doc_rows):
         row["split"] = "train" if d < n_train_docs else "test"
@@ -1066,6 +2033,33 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
     rng.shuffle(train_slots)
     rng.shuffle(test_slots)
 
+    slot_lookup = {row["global_slot"]: row for row in slot_metadata}
+
+    def write_position_index(slots, split_name):
+        path = os.path.join(output_dir, f"position_index_{split_name}.jsonl")
+        role_counts = Counter()
+        task_counts = Counter()
+        source_counts = Counter()
+        with open(path, "w", encoding="utf-8") as f:
+            for row_index, global_slot in enumerate(slots.tolist()):
+                meta = dict(slot_lookup[int(global_slot)])
+                meta["row_index"] = int(row_index)
+                meta["split"] = split_name
+                role_counts[meta["position_role"]] += 1
+                task_counts[meta["task"]] += 1
+                source_counts[meta["source_dataset"]] += 1
+                f.write(json.dumps(meta, sort_keys=True) + "\n")
+        return {
+            "path": path,
+            "rows": int(len(slots)),
+            "role_counts": dict(role_counts),
+            "task_counts": dict(task_counts),
+            "source_counts": dict(source_counts),
+        }
+
+    train_index_report = write_position_index(train_slots, "train")
+    test_index_report = write_position_index(test_slots, "test")
+
     for layer in tqdm(range(num_layers), desc="Saving", leave=True):
         for head in range(num_kv_heads):
             k_tr = key_buf[layer, head][train_slots].astype(SAVE_DTYPE)
@@ -1083,7 +2077,11 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
     # against this file -- do not rename those keys.
     manifest = {
         "calibration_mode": CALIBRATION_MODE,
+        "calibration_variant": CALIBRATION_VARIANT,
+        "calibration_output_tag": CALIBRATION_OUTPUT_TAG,
         "source_dataset_variant": (
+            CALIBRATION_VARIANT
+            if CALIBRATION_VARIANT != "prior_held_out" else
             "longbench_e" if CALIBRATION_MODE in {"matched", "contaminated"}
             else "longbench_v1_excluded_tasks"
         ),
@@ -1096,10 +2094,17 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
         "eval_samples_per_task": EVAL_SAMPLES_PER_TASK,
         "calib_tasks": sorted({task for task, _, _ in chosen}),
         "calib_task_weights": (
+            {
+                spec["name"]: spec["documents"]
+                for spec in CALIBRATION_VARIANT_SOURCES.get(CALIBRATION_VARIANT, [])
+            }
+            if CALIBRATION_VARIANT != "prior_held_out" else
             CALIB_TASK_WEIGHTS if CALIBRATION_MODE == "held_out"
             else {task: 1 for task in EVAL_TASKS}
         ),
+        "source_revisions": SOURCE_REVISIONS,
         "max_input_length": MAX_INPUT_LENGTH,
+        "teacher_force_answer_tokens": TEACHER_FORCE_ANSWER_TOKENS,
         "vectors_per_head": int(len(train_slots)),      # train side, what the trainer reads
         "test_vectors_per_head": int(len(test_slots)),
         "num_documents": int(n_docs),
@@ -1110,6 +2115,21 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
         "split_granularity": "document",
         "documents_per_task_train": train_tasks,
         "documents_per_task_test": test_tasks,
+        "position_index_train": train_index_report,
+        "position_index_test": test_index_report,
+        "role_position_quotas": ROLE_POSITION_QUOTAS,
+        "realized_role_counts_train": train_index_report["role_counts"],
+        "realized_role_counts_test": test_index_report["role_counts"],
+        "realized_source_counts_train": train_index_report["source_counts"],
+        "realized_source_counts_test": test_index_report["source_counts"],
+        "decontamination_report": (
+            select_variant_calibration_samples.last_report
+            if CALIBRATION_VARIANT != "prior_held_out" else None
+        ),
+        "source_mixture": (
+            CALIBRATION_VARIANT_SOURCES.get(CALIBRATION_VARIANT)
+            if CALIBRATION_VARIANT != "prior_held_out" else None
+        ),
         "failed_documents": failed,
         "save_dtype": np.dtype(SAVE_DTYPE).name,
         "seed": SEED,
@@ -1237,10 +2257,12 @@ import scipy.cluster.hierarchy as sch
 from scipy.spatial.distance import squareform
 import torch
 from tqdm import tqdm
+from collections import Counter, defaultdict
 
 
 # ============================================================
 # Configurable Parameters
+# PQ_BRIDGE_CELL_MARKER: longbench_adaptive_codebook_training
 # ============================================================
 
 MODEL_NAME = "qwen3_8B"
@@ -2110,8 +3132,37 @@ if _training_mode_env not in {"held_out", "matched", "contaminated"}:
         "PQ_TRAINING_CALIBRATION_MODE must be held_out, matched, or contaminated"
     )
 EXPECTED_CALIBRATION_MODE = _training_mode_env
+_training_variant_env = os.environ.get(
+    "PQ_TRAINING_CALIBRATION_VARIANT", "prior_held_out"
+).strip().lower()
+TRAINING_VARIANT_ALIASES = {
+    "": "prior_held_out",
+    "none": "prior_held_out",
+    "held_out": "prior_held_out",
+    "prior": "prior_held_out",
+    "prior_held_out": "prior_held_out",
+    "clean_hotpot_a": "clean_hotpot_a",
+    "hotpot_a": "clean_hotpot_a",
+    "variant_a": "clean_hotpot_a",
+    "clean_suite_b": "clean_suite_b",
+    "suite_b": "clean_suite_b",
+    "variant_b": "clean_suite_b",
+}
+if _training_variant_env not in TRAINING_VARIANT_ALIASES:
+    raise ValueError(
+        "PQ_TRAINING_CALIBRATION_VARIANT must be prior_held_out, "
+        "clean_hotpot_a, or clean_suite_b"
+    )
+EXPECTED_CALIBRATION_VARIANT = TRAINING_VARIANT_ALIASES[_training_variant_env]
+if EXPECTED_CALIBRATION_VARIANT != "prior_held_out" and EXPECTED_CALIBRATION_MODE != "held_out":
+    raise ValueError("Clean training variants require PQ_TRAINING_CALIBRATION_MODE=held_out")
+TRAINING_OUTPUT_TAG = (
+    EXPECTED_CALIBRATION_MODE
+    if EXPECTED_CALIBRATION_VARIANT == "prior_held_out"
+    else EXPECTED_CALIBRATION_VARIANT
+)
 TRAINING_DATA_NAME = (
-    f"pq_training_data_longbench_e_{EXPECTED_CALIBRATION_MODE}_4096"
+    f"pq_training_data_longbench_e_{TRAINING_OUTPUT_TAG}_4096"
 )
 TRAINING_DATA_ROOT = os.path.join(DRIVE_BASE, TRAINING_DATA_NAME)
 CALIBRATION_MANIFEST = os.path.join(TRAINING_DATA_ROOT, "calibration_manifest.json")
@@ -2129,9 +3180,11 @@ DIMS = 128
 NUM_SUBVECTORS = 64
 CODEWORDS = 128
 
-# Tuned for the new extraction's supply (~18k train vectors per head). The old
-# 50000/5000 pair silently triggered replace=True oversampling for small groups.
+# Adaptive group budget used by clean Variant A/B:
+# group_target = max(50,000, 10,000 * number_of_heads_in_group).
 TARGET_TRAIN_SIZE = 50000
+ADAPTIVE_GROUP_MIN_TOTAL = 50000
+ADAPTIVE_GROUP_PER_HEAD = 10000
 MIN_VECTORS_PER_HEAD = 5000
 
 # When a group cannot supply per_head_target vectors, cap at what exists rather than
@@ -2155,7 +3208,11 @@ EXPECTED_EVAL_TASKS = {
     "passage_retrieval_en", "lcc", "repobench-p",
 }
 EXPECTED_LONGBENCH_E_REVISION = "36914d6211386125c6fc4ce7db4a6a777fadd34c"
-CODEBOOK_TAG = f"longbench_e_{EXPECTED_CALIBRATION_MODE}_4096_balanced_kpp_noclip"
+CODEBOOK_TAG = (
+    f"longbench_e_{TRAINING_OUTPUT_TAG}_4096_adaptive10k"
+    if EXPECTED_CALIBRATION_VARIANT != "prior_held_out"
+    else f"longbench_e_{EXPECTED_CALIBRATION_MODE}_4096_balanced_kpp_noclip"
+)
 CODEBOOK_NAME = (
     f"codebooks_{NUM_SUBVECTORS}_{CODEWORDS}_{CLUSTERS}_{CODEBOOK_TAG}"
 )
@@ -2243,6 +3300,12 @@ def load_and_validate_calibration_manifest():
             "Change EXPECTED_CALIBRATION_MODE intentionally before training "
             "a different calibration variant."
         )
+    variant = manifest.get("calibration_variant", "prior_held_out")
+    if variant != EXPECTED_CALIBRATION_VARIANT:
+        raise ValueError(
+            f"Expected calibration_variant={EXPECTED_CALIBRATION_VARIANT!r}, "
+            f"but manifest reports {variant!r}."
+        )
 
     if int(manifest.get("max_input_length", -1)) != 4096:
         warnings.warn(
@@ -2262,10 +3325,23 @@ def load_and_validate_calibration_manifest():
         )
     calib_tasks_used = {row.get("task") for row in samples}
     overlap = sorted(eval_tasks & calib_tasks_used)
-    if mode == "held_out" and overlap:
+    if mode == "held_out" and variant == "prior_held_out" and overlap:
         raise ValueError(
             f"Held-out calibration is contaminated by eval tasks: {overlap}"
         )
+    if variant != "prior_held_out":
+        if manifest.get("source_dataset_variant") != variant:
+            raise ValueError(
+                f"Clean variant manifest source_dataset_variant must be {variant!r}"
+            )
+        decon = manifest.get("decontamination_report")
+        if not decon or decon.get("longbench_e_revision") != EXPECTED_LONGBENCH_E_REVISION:
+            raise ValueError(
+                "Clean variant manifest is missing the pinned LongBench-E "
+                "decontamination report."
+            )
+        rejected = decon.get("rejected_counts", {})
+        print(f"  decontamination rejected counts: {rejected}")
     if mode in {"matched", "contaminated"}:
         if manifest.get("source_dataset_variant") != "longbench_e":
             raise ValueError(
@@ -2289,12 +3365,15 @@ def load_and_validate_calibration_manifest():
 
     print("\nCalibration provenance")
     print(f"  mode:              {mode}")
+    print(f"  variant:           {variant}")
     print(f"  source directory:  {TRAINING_DATA_ROOT}")
     print(f"  documents:         {n_docs}")
     print(f"  tasks used:        {sorted(calib_tasks_used)}")
     print(f"  vectors/head:      {manifest.get('vectors_per_head')}")
     print(f"  test vectors/head: {manifest.get('test_vectors_per_head', 'n/a')}")
     print(f"  split granularity: {manifest.get('split_granularity', 'n/a')}")
+    if manifest.get("position_index_train"):
+        print(f"  train sidecar:     {manifest['position_index_train'].get('path')}")
 
     # Document count is the number that determines effective sample size; positions
     # within one document are heavily correlated.
@@ -2679,8 +3758,133 @@ def get_or_create_groups(tensor_type, train_files):
 # Raw Data Loading
 # ============================================================
 
+_POSITION_INDEX_CACHE = None
+
+
+def adaptive_group_target(num_heads):
+    return max(ADAPTIVE_GROUP_MIN_TOTAL, ADAPTIVE_GROUP_PER_HEAD * int(num_heads))
+
+
+def validate_adaptive_group_budget_rule():
+    expected = {
+        2: 50000,
+        3: 50000,
+        4: 50000,
+        5: 50000,
+        6: 60000,
+        7: 70000,
+        8: 80000,
+        9: 90000,
+        10: 100000,
+    }
+    observed = {heads: adaptive_group_target(heads) for heads in range(2, 11)}
+    if observed != expected:
+        raise AssertionError(
+            f"Adaptive group budget validation failed: {observed} != {expected}"
+        )
+    print(f"Adaptive group budget validation passed: {observed}")
+
+
+def load_position_index():
+    global _POSITION_INDEX_CACHE
+    if _POSITION_INDEX_CACHE is not None:
+        return _POSITION_INDEX_CACHE
+
+    path = os.path.join(TRAINING_DATA_ROOT, "position_index_train.jsonl")
+    if not os.path.exists(path):
+        _POSITION_INDEX_CACHE = None
+        return None
+
+    rows = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                rows.append(json.loads(line))
+    rows.sort(key=lambda row: int(row["row_index"]))
+    _POSITION_INDEX_CACHE = rows
+    return rows
+
+
+def stratified_unique_indices(available, requested, metadata_rows, seed_offset):
+    if requested <= 0 or available <= 0:
+        return np.array([], dtype=np.int64), {}
+
+    rng = np.random.default_rng(SEED + seed_offset)
+    realized = min(int(requested), int(available))
+    if not metadata_rows or len(metadata_rows) < available:
+        return rng.choice(available, size=realized, replace=False), {
+            "stratified": False,
+            "reason": "missing_or_short_position_index",
+        }
+
+    buckets = defaultdict(list)
+    for row in metadata_rows[:available]:
+        key = (
+            row.get("source_family") or row.get("source_dataset") or row.get("task") or "unknown",
+            row.get("position_role") or "unknown",
+        )
+        buckets[key].append(int(row["row_index"]))
+
+    total_available = sum(len(v) for v in buckets.values())
+    allocations = {}
+    fractional = []
+    for key, indices in buckets.items():
+        raw = realized * len(indices) / max(total_available, 1)
+        take = min(len(indices), int(math.floor(raw)))
+        allocations[key] = take
+        fractional.append((raw - take, key))
+
+    remaining = realized - sum(allocations.values())
+    for _, key in sorted(fractional, reverse=True):
+        if remaining <= 0:
+            break
+        room = len(buckets[key]) - allocations[key]
+        if room <= 0:
+            continue
+        add = min(room, remaining)
+        allocations[key] += add
+        remaining -= add
+
+    selected = []
+    for key, take in allocations.items():
+        if take <= 0:
+            continue
+        selected.extend(rng.choice(buckets[key], size=take, replace=False).tolist())
+
+    if len(selected) < realized:
+        used = set(selected)
+        fallback = [i for i in range(available) if i not in used]
+        need = min(realized - len(selected), len(fallback))
+        if need > 0:
+            selected.extend(rng.choice(fallback, size=need, replace=False).tolist())
+
+    rng.shuffle(selected)
+    role_counts = Counter(
+        metadata_rows[i].get("position_role", "unknown")
+        for i in selected
+        if i < len(metadata_rows)
+    )
+    task_counts = Counter(
+        metadata_rows[i].get("task", "unknown")
+        for i in selected
+        if i < len(metadata_rows)
+    )
+    source_counts = Counter(
+        metadata_rows[i].get("source_family", metadata_rows[i].get("source_dataset", "unknown"))
+        for i in selected
+        if i < len(metadata_rows)
+    )
+    return np.array(selected, dtype=np.int64), {
+        "stratified": True,
+        "bucket_count": len(buckets),
+        "role_counts": dict(role_counts),
+        "task_counts": dict(task_counts),
+        "source_family_counts": dict(source_counts),
+    }
+
+
 def load_raw_data_for_group(file_paths, target_total, min_per_head, tensor_type="keys"):
-    """Sample a fixed total number of vectors while balancing contributions by head."""
+    """Sample an adaptive group budget while balancing heads and preserving strata."""
     num_heads = len(file_paths)
 
     if num_heads == 0:
@@ -2692,12 +3896,18 @@ def load_raw_data_for_group(file_paths, target_total, min_per_head, tensor_type=
             f"{min_per_head} to {num_heads} heads."
         )
 
-    # The total is capped exactly. Each head gets an approximately equal allocation,
-    # with the configured minimum now enforced rather than merely logged.
+    # The total is capped exactly. Each head gets an approximately equal allocation.
     per_head_base = target_total // num_heads
     remainder = target_total % num_heads
 
     data = []
+    vectors_per_head = {}
+    shortfalls = {}
+    task_counts = Counter()
+    role_counts = Counter()
+    source_family_counts = Counter()
+    duplication_count_total = 0
+    metadata_rows = load_position_index()
 
     for head_idx, f in enumerate(tqdm(file_paths, desc="Loading raw data for group")):
         head_data = np.load(f).astype(np.float32)
@@ -2708,19 +3918,33 @@ def load_raw_data_for_group(file_paths, target_total, min_per_head, tensor_type=
         requested = per_head_base + (1 if head_idx < remainder else 0)
         available = len(head_data)
 
-        if requested <= available:
-            indices = np.random.choice(available, requested, replace=False)
-        elif ALLOW_DUPLICATION:
-            indices = np.random.choice(available, requested, replace=True)
-        else:
-            # Use every unique point and leave the group below target rather than duplicate.
-            indices = np.random.permutation(available)
+        if requested > available and not ALLOW_DUPLICATION:
+            shortfalls[parse_head_name(f)] = int(requested - available)
             print(
                 f"  NOTE: {os.path.basename(f)} supplies {available} unique vectors "
                 f"for {requested} requested; no duplication"
             )
 
+        if ALLOW_DUPLICATION and requested > available:
+            indices = np.random.choice(available, requested, replace=True)
+            strata = {"stratified": False, "reason": "duplication_enabled"}
+            duplication_count = int(requested - available)
+        else:
+            indices, strata = stratified_unique_indices(
+                available,
+                min(requested, available),
+                metadata_rows,
+                seed_offset=head_idx + 1009 * num_heads,
+            )
+            duplication_count = 0
+
         data.append(head_data[indices])
+        duplication_count_total += duplication_count
+        head_name = parse_head_name(f)
+        vectors_per_head[head_name] = int(len(indices))
+        role_counts.update(strata.get("role_counts", {}))
+        task_counts.update(strata.get("task_counts", {}))
+        source_family_counts.update(strata.get("source_family_counts", {}))
         del head_data
 
     data = np.vstack(data).astype(np.float32)
@@ -2729,13 +3953,24 @@ def load_raw_data_for_group(file_paths, target_total, min_per_head, tensor_type=
         low, high = np.percentile(data, [0.1, 99.9], axis=0)
         data = np.clip(data, low, high)
 
-    np.random.shuffle(data)
+    rng = np.random.default_rng(SEED + 17 * num_heads)
+    rng.shuffle(data)
 
-    # Enforce the actual group-wide cap.
-    if len(data) > target_total:
-        data = data[:target_total]
+    stats = {
+        "head_count": int(num_heads),
+        "requested_total": int(target_total),
+        "realized_total": int(len(data)),
+        "vectors_per_head": vectors_per_head,
+        "task_counts": dict(task_counts),
+        "role_counts": dict(role_counts),
+        "source_family_counts": dict(source_family_counts),
+        "shortfalls": shortfalls,
+        "duplication_count": int(duplication_count_total),
+        "allow_duplication": bool(ALLOW_DUPLICATION),
+        "stratified_by": ["source_family", "position_role"],
+    }
 
-    return data.astype(np.float32)
+    return data.astype(np.float32), stats
 
 
 # ============================================================
@@ -3301,6 +4536,7 @@ def write_cluster_summary(output_dir, tensor_type, groups, head_to_codebook_map,
         "training_data_root": TRAINING_DATA_ROOT,
         "calibration_manifest": CALIBRATION_MANIFEST,
         "expected_calibration_mode": EXPECTED_CALIBRATION_MODE,
+        "expected_calibration_variant": EXPECTED_CALIBRATION_VARIANT,
         "codebook_tag": CODEBOOK_TAG,
         "cluster_metric": CLUSTER_METRIC,
         "clusters_requested": CLUSTERS,
@@ -3311,6 +4547,9 @@ def write_cluster_summary(output_dir, tensor_type, groups, head_to_codebook_map,
         "sub_dim": DIMS // NUM_SUBVECTORS,
         "codewords": CODEWORDS,
         "target_train_size": TARGET_TRAIN_SIZE,
+        "adaptive_group_min_total": ADAPTIVE_GROUP_MIN_TOTAL,
+        "adaptive_group_per_head": ADAPTIVE_GROUP_PER_HEAD,
+        "adaptive_group_budget_rule": "max(50000, 10000 * number_of_heads_in_group)",
         "min_vectors_per_head": MIN_VECTORS_PER_HEAD,
         "allow_duplication": ALLOW_DUPLICATION,
         "kmeans_max_iters_fine": KMEANS_MAX_ITERS_FINE,
@@ -3427,7 +4666,7 @@ def run_pipeline_for_tensor_type(tensor_type="keys"):
 
     probe = np.load(train_files[0], mmap_mode="r")
     print(f"Supply per head: {probe.shape[0]} vectors  "
-          f"(TARGET_TRAIN_SIZE={TARGET_TRAIN_SIZE}, "
+          f"(adaptive group rule=max(50K, 10K * heads), "
           f"MIN_VECTORS_PER_HEAD={MIN_VECTORS_PER_HEAD})")
     del probe
 
@@ -3452,16 +4691,19 @@ def run_pipeline_for_tensor_type(tensor_type="keys"):
         print(f"{tensor_type.upper()} group_{group_id}: {len(paths)} heads")
         print("------------------------------------------------------------")
 
-        raw_data = load_raw_data_for_group(
+        group_target = adaptive_group_target(len(paths))
+        raw_data, stats = load_raw_data_for_group(
             paths,
-            TARGET_TRAIN_SIZE,
+            group_target,
             MIN_VECTORS_PER_HEAD,
             tensor_type,
         )
 
         print(f"Training data shape for group_{group_id}: {raw_data.shape}")
 
-        stats = {"heads": len(paths), "train_vectors": int(raw_data.shape[0])}
+        stats["heads"] = len(paths)
+        stats["train_vectors"] = int(raw_data.shape[0])
+        stats["adaptive_group_target"] = int(group_target)
         fine_centroids, coarse_centroids, lut = train_all_subvector_codebooks(
             raw_data, stats=stats)
         group_stats[f"group_{group_id}"] = stats
@@ -3536,6 +4778,7 @@ def build_calibration_static_masks():
 if __name__ == "__main__":
     set_seed(SEED)
     setup_torch()
+    validate_adaptive_group_budget_rule()
     calibration_manifest = load_and_validate_calibration_manifest()
 
     if DIMS % NUM_SUBVECTORS != 0:
@@ -5122,6 +6365,7 @@ DIMS = 128
 PQ_CHUNK_SIZE = 64
 
 # LongBench v1 / LongBench-E evaluation.
+# PQ_BRIDGE_CELL_MARKER: longbench_eval_dynamic_static_variant
 # Keep full evaluation as the default, while allowing a bridge command to request
 # the small end-to-end smoke test without editing and republishing the notebook.
 _test_mode_env = os.environ.get("PQ_LONGBENCH_TEST_MODE", "0").strip().lower()
@@ -5151,6 +6395,9 @@ MAX_NEW_TOKENS_CAP = 64 if TEST_MODE else None
 USE_CHAT_TEMPLATE = True
 DISABLE_QWEN_THINKING = True
 TRACK_TOKEN_LEVEL_OUTLIERS = False
+RUN_KEY_VALUE_SIDE_DIAGNOSTICS = os.environ.get(
+    "PQ_LONGBENCH_SIDE_DIAGNOSTICS", "0"
+).strip().lower() in {"1", "true", "yes", "on"}
 
 LONG_BENCH_REPOS = ["zai-org/LongBench", "THUDM/LongBench"]
 # Pin the converted Parquet tree. The repository's current main branch can point
@@ -5187,7 +6434,38 @@ if _eval_calibration_mode_env not in {"held_out", "matched", "contaminated"}:
         "PQ_LONGBENCH_CALIBRATION_MODE must be held_out, matched, or contaminated"
     )
 EVAL_CALIBRATION_MODE = _eval_calibration_mode_env
-_result_suffix = "" if EVAL_CALIBRATION_MODE == "held_out" else f"_{EVAL_CALIBRATION_MODE}"
+_eval_calibration_variant_env = os.environ.get(
+    "PQ_LONGBENCH_CALIBRATION_VARIANT", "prior_held_out"
+).strip().lower()
+EVAL_VARIANT_ALIASES = {
+    "": "prior_held_out",
+    "none": "prior_held_out",
+    "held_out": "prior_held_out",
+    "prior": "prior_held_out",
+    "prior_held_out": "prior_held_out",
+    "clean_hotpot_a": "clean_hotpot_a",
+    "hotpot_a": "clean_hotpot_a",
+    "variant_a": "clean_hotpot_a",
+    "clean_suite_b": "clean_suite_b",
+    "suite_b": "clean_suite_b",
+    "variant_b": "clean_suite_b",
+}
+if _eval_calibration_variant_env not in EVAL_VARIANT_ALIASES:
+    raise ValueError(
+        "PQ_LONGBENCH_CALIBRATION_VARIANT must be prior_held_out, "
+        "clean_hotpot_a, or clean_suite_b"
+    )
+EVAL_CALIBRATION_VARIANT = EVAL_VARIANT_ALIASES[_eval_calibration_variant_env]
+if EVAL_CALIBRATION_VARIANT != "prior_held_out" and EVAL_CALIBRATION_MODE != "held_out":
+    raise ValueError("Clean LongBench eval variants require held_out calibration mode")
+EVAL_OUTPUT_TAG = (
+    EVAL_CALIBRATION_MODE
+    if EVAL_CALIBRATION_VARIANT == "prior_held_out"
+    else EVAL_CALIBRATION_VARIANT
+)
+_result_suffix = (
+    "" if EVAL_OUTPUT_TAG == "held_out" else f"_{EVAL_OUTPUT_TAG}"
+)
 _run_tag = os.environ.get("PQ_LONGBENCH_RUN_TAG", "").strip()
 if _run_tag and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", _run_tag) is None:
     raise ValueError(
@@ -5214,7 +6492,11 @@ STATIC_OUTLIER_BY_HEAD_CSV = f"outlier_static_reuse_by_head_longbench{_result_su
 
 LONGBENCH_E_CODEBOOK_DIR = os.path.join(
     MODEL_DIR,
-    f"codebooks_64_128_64_longbench_e_{EVAL_CALIBRATION_MODE}_4096_balanced_kpp_noclip",
+    (
+        f"codebooks_64_128_64_longbench_e_{EVAL_OUTPUT_TAG}_4096_adaptive10k"
+        if EVAL_CALIBRATION_VARIANT != "prior_held_out"
+        else f"codebooks_64_128_64_longbench_e_{EVAL_CALIBRATION_MODE}_4096_balanced_kpp_noclip"
+    ),
 )
 
 KEY_CONFIG = {
@@ -5236,6 +6518,8 @@ VALUE_CONFIG = {
 EXPERIMENT_NAME = "LongBenchE_K64x128_C64_out3__V64x128_C64_out3"
 if EVAL_CALIBRATION_MODE != "held_out":
     EXPERIMENT_NAME += f"__{EVAL_CALIBRATION_MODE}_calibration"
+if EVAL_CALIBRATION_VARIANT != "prior_held_out":
+    EXPERIMENT_NAME += f"__{EVAL_CALIBRATION_VARIANT}"
 if _run_tag:
     EXPERIMENT_NAME += f"__{_run_tag}"
 
@@ -5876,6 +7160,8 @@ class DualPQManager:
         outlier_mode="dynamic",
         static_outlier_masks=None,
         track_token_outliers=False,
+        quantize_keys=True,
+        quantize_values=True,
     ):
         self.device = device if device is not None else get_device()
         self.key_cfg = dict(key_cfg)
@@ -5886,6 +7172,8 @@ class DualPQManager:
         self.outlier_mode = outlier_mode
         self.static_outlier_masks = static_outlier_masks or {}
         self.track_token_outliers = track_token_outliers
+        self.quantize_keys = quantize_keys
+        self.quantize_values = quantize_values
 
         self.key_cfg["dim_per_sub"] = DIMS // self.key_cfg["num_sub_vectors"]
         self.value_cfg["dim_per_sub"] = DIMS // self.value_cfg["num_sub_vectors"]
@@ -5969,6 +7257,10 @@ class DualPQManager:
 
     def quantize_tensor(self, tensor, layer_idx, is_key=True):
         if not self.enabled:
+            return tensor
+        if is_key and not self.quantize_keys:
+            return tensor
+        if (not is_key) and not self.quantize_values:
             return tensor
 
         bsz, num_heads, seq_len, head_dim = tensor.shape
@@ -6977,6 +8269,7 @@ if __name__ == "__main__":
             ("longbench_e", USE_LONG_BENCH_E),
             ("LongBench loader", LONG_BENCH_LOADER_VERSION),
             ("datasets", preview_list(LONG_BENCH_DATASETS)),
+            ("calibration variant", EVAL_CALIBRATION_VARIANT),
             ("max samples/dataset", MAX_SAMPLES_PER_DATASET),
             ("max input tokens", MAX_INPUT_TOKENS),
             ("max new token cap", MAX_NEW_TOKENS_CAP),
@@ -7042,8 +8335,35 @@ if __name__ == "__main__":
     )
     summary_by_mode["baseline"] = baseline_summary
 
+    if RUN_KEY_VALUE_SIDE_DIAGNOSTICS:
+        section("Key-only dynamic PQ LongBench")
+        pq_manager.enabled = True
+        pq_manager.quantize_keys = True
+        pq_manager.quantize_values = False
+        pq_manager.set_outlier_mode("dynamic")
+        pq_manager.reset_outlier_tracker()
+        set_model_pq_manager(model, pq_manager)
+        _, key_only_summary, key_only_avg, key_only_weighted = evaluate_longbench_mode(
+            model, tokenizer, data_by_dataset, "key_only_dynamic"
+        )
+        summary_by_mode["key_only_dynamic"] = key_only_summary
+
+        section("Value-only dynamic PQ LongBench")
+        pq_manager.enabled = True
+        pq_manager.quantize_keys = False
+        pq_manager.quantize_values = True
+        pq_manager.set_outlier_mode("dynamic")
+        pq_manager.reset_outlier_tracker()
+        set_model_pq_manager(model, pq_manager)
+        _, value_only_summary, value_only_avg, value_only_weighted = evaluate_longbench_mode(
+            model, tokenizer, data_by_dataset, "value_only_dynamic"
+        )
+        summary_by_mode["value_only_dynamic"] = value_only_summary
+
     section("Dynamic-outlier PQ LongBench")
     pq_manager.enabled = True
+    pq_manager.quantize_keys = True
+    pq_manager.quantize_values = True
     pq_manager.set_outlier_mode("dynamic")
     pq_manager.reset_outlier_tracker()
     set_model_pq_manager(model, pq_manager)
@@ -7070,6 +8390,8 @@ if __name__ == "__main__":
     )
 
     section("Static-mask PQ LongBench")
+    pq_manager.quantize_keys = True
+    pq_manager.quantize_values = True
     pq_manager.set_outlier_mode("static", static_outlier_masks=static_masks)
     pq_manager.reset_outlier_tracker()
     set_model_pq_manager(model, pq_manager)

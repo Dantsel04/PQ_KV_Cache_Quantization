@@ -8,6 +8,27 @@ This repository contains a Jupytext-managed Google Colab workflow for Qwen3-8B
 KV-cache product quantization. `KV_Cache.py` is the editable source and
 `KV_Cache.ipynb` is the synced Colab artifact.
 
+- A HotpotQA-focused calibration-data audit is documented in `training_plan.md`.
+  It identifies the current held-out pool's 45.7% Chinese-document share, limited
+  English multi-hop coverage, and uniform 50-position sampling as priority data
+  mismatches. No notebook or GPU artifact was changed by this analysis.
+- `PLAN.md` now defines the active milestone: implement clean calibration Variants A
+  and B with role-aware extraction and an adaptive group budget of
+  `max(50,000, 10,000 * heads_in_group)`. The local source implementation for
+  Variant A/B configuration, Variant A source loading, decontamination, role-aware
+  extraction sidecars, adaptive group training budgets, and Variant A evaluation
+  path selection is implemented in `KV_Cache.py` and synced to `KV_Cache.ipynb`.
+  No Variant A GPU extraction/training/evaluation result exists yet.
+
+- Local source checkpoint on 2026-08-07:
+  - `py -m py_compile KV_Cache.py`: passed.
+  - `py -m jupytext --sync KV_Cache.ipynb`: passed.
+  - `git diff --check`: passed with only Git CRLF conversion warnings.
+  - Bridge source markers verified unique:
+    `longbench_calibration_extraction_role_aware`,
+    `longbench_adaptive_codebook_training`, and
+    `longbench_eval_dynamic_static_variant`.
+
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
 - `py -m jupytext --sync KV_Cache.ipynb`: passed.

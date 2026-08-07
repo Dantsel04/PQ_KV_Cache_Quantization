@@ -76,6 +76,10 @@ Cells: lines 403-1156
 What it does:
 - Replaces simple WikiText calibration with a LongBench-based extraction pipeline.
 - Defaults to reportable task-held-out calibration against the full LongBench-E suite.
+- Supports clean calibration variants selected with `PQ_CALIBRATION_VARIANT`,
+  including Variant A `clean_hotpot_a`, with pinned training-source revisions,
+  LongBench-E decontamination, role-aware token sampling, teacher-forced answer
+  positions, and `position_index_{train,test}.jsonl` sidecars.
 - Builds prompts with the same template, chat-template, and 4096-token middle-truncation order as evaluation.
 - Captures post-`k_norm`, pre-RoPE key vectors and raw value vectors at sampled positions.
 - Writes one resumable shard per document, then assembles document-level train/test splits.
@@ -90,7 +94,7 @@ Inputs:
 - `/content/qwen3_8B` model directory.
 - LongBench data from `zai-org/LongBench` or `THUDM/LongBench`.
 - Prompt template JSON from the LongBench GitHub repo.
-- Calibration config: `PQ_CALIBRATION_MODE`, `EVAL_TASKS`, `CALIB_TASK_WEIGHTS`, `NUM_CALIB_SAMPLES`, `MAX_INPUT_LENGTH`, `VECTORS_PER_HEAD`, `TEST_FRACTION`.
+- Calibration config: `PQ_CALIBRATION_MODE`, `PQ_CALIBRATION_VARIANT`, `PQ_CALIBRATION_SEED`, `EVAL_TASKS`, `CALIB_TASK_WEIGHTS`, `NUM_CALIB_SAMPLES`, `MAX_INPUT_LENGTH`, `VECTORS_PER_HEAD`, `TEST_FRACTION`.
 
 Outputs:
 - Shards: `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/_shards/*.npz`.
@@ -99,6 +103,7 @@ Outputs:
   - `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/keys/L{layer}_H{head}_Test.npy`
   - matching `values` files.
 - `calibration_manifest.json`.
+- `position_index_train.jsonl` and `position_index_test.jsonl` role/source sidecars.
 - Optional Drive backup at `/content/drive/MyDrive/qwen3_8B/pq_training_data_longbench_e_{mode}_4096`.
 
 Dependencies:
@@ -108,6 +113,7 @@ Dependencies:
 
 Command controls:
 - `PQ_CALIBRATION_MODE` selects held-out, matched, or contaminated extraction.
+- `PQ_CALIBRATION_VARIANT=clean_hotpot_a` selects the Hotpot-specialized clean Variant A output path.
 - `PQ_LONGBENCH_TEST_SAMPLES_PER_DATASET` sizes diagnostic evaluation runs.
 - `PQ_LONGBENCH_RUN_TAG` isolates diagnostic output directories and CSV names.
 
@@ -197,6 +203,9 @@ What it does:
 - Trains codebooks from the LongBench extraction output instead of WikiText calibration.
 - Validates calibration provenance before training.
 - Uses balanced group-size constraints for head clusters.
+- Uses adaptive per-group training budgets:
+  `max(50,000, 10,000 * heads_in_group)`, with no duplication when unique vectors
+  are sufficient and stratified sampling from role/source sidecars when available.
 - Improves k-means with k-means++ initialization, multiple restarts, per-subvector best-restart selection, relative tolerance, and inertia reporting.
 - Adds a held-out reconstruction MSE check against `*_Test.npy` vectors, with optional baseline comparison.
 - Learns static outlier masks from calibration vectors rather than evaluation samples.
@@ -212,11 +221,13 @@ Inputs:
 - `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/{keys,values}/*_Train.npy`.
 - `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/{keys,values}/*_Test.npy`.
 - `/content/qwen3_8B/pq_training_data_longbench_e_{mode}_4096/calibration_manifest.json`.
+- `/content/qwen3_8B/pq_training_data_longbench_e_{variant}_4096/position_index_train.jsonl` for clean Variant A/B stratification.
 - Optional baseline codebooks at `/content/qwen3_8B/codebooks_64_128_64`.
 
 Outputs:
 - Versioned LongBench-E codebooks under:
   - `/content/qwen3_8B/codebooks_64_128_64_longbench_e_{mode}_4096_balanced_kpp_noclip/{keys,values}/`
+  - `/content/qwen3_8B/codebooks_64_128_64_longbench_e_clean_hotpot_a_4096_adaptive10k/{keys,values}/`
 - Codebook text files, head maps, cluster summaries, and calibration-derived `static_outlier_masks.json`.
 - Per-side `codebook_mse_report.json`.
 - Optional Drive copy.
