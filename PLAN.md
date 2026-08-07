@@ -27,21 +27,34 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - [x] Download and verify Qwen3-8B under `/content/qwen3_8B`.
 - [x] Complete held-out calibration-vector extraction.
 - [x] Verify the calibration manifest and key/value train/test arrays.
-- [ ] Train key and value 64 x 128 codebooks.
-- [ ] Verify head maps, runtime compatibility, NMSE reports, and static masks.
+- [x] Train key and value 64 x 128 codebooks.
+- [x] Verify head maps, runtime compatibility, NMSE reports, and static masks.
 - [ ] Run the full LongBench-E baseline/dynamic/static suite.
 - [ ] Record verified aggregate and per-dataset results.
 - [ ] Update and publish final project documentation.
 
 ## Active Command
 
-- Stage: 64-bank x 128-codeword key/value codebook training
-- Command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
+- Stage: full LongBench-E baseline/dynamic/static evaluation preparation
+- Prior command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
+- Verification command ID: `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a`
 - Bridge: `G:\My Drive\PQ_agent`
-- State: submitted; accept only the matching bridge result.
-- Prior gate: extraction and its artifact audit both returned matching code 0.
+- State: training and independent artifact audit returned matching code 0;
+  evaluation is the next gate and has not yet been submitted.
+- Prior gates: extraction, training, and their artifact audits returned matching
+  code 0.
 - Selection method: use the unique training-cell source marker because notebook cell
   IDs are absent after Jupytext sync.
+
+## Verified Training Metrics
+
+- Keys: NMSE `0.0036450881517603095`; with 3 preserved outliers
+  `0.0033515924495468403`.
+- Values: NMSE `0.020132016182836856`; with 3 preserved outliers
+  `0.0195675781971871`.
+- Each side: 288 heads, 64 groups, 4,096 fine files, 4,096 coarse files, and
+  4,096 LUT files.
+- Static masks: 576 heads with 3 calibration-derived dimensions per head.
 
 ## Bridge Loop
 
