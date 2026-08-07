@@ -29,22 +29,25 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - [x] Verify the calibration manifest and key/value train/test arrays.
 - [x] Train key and value 64 x 128 codebooks.
 - [x] Verify head maps, runtime compatibility, NMSE reports, and static masks.
-- [ ] Run and inspect the requested small diagnostic LongBench smoke test.
+- [x] Run and inspect the requested small diagnostic LongBench smoke test.
 - [ ] Run the full LongBench-E baseline/dynamic/static suite.
 - [ ] Record verified aggregate and per-dataset results.
 - [ ] Update and publish final project documentation.
 
 ## Active Command
 
-- Stage: full LongBench-E baseline/dynamic/static evaluation retry
-- Active command ID: `pq-longbench-e-107ac5e62ab54a7c94c2c975c0838832`
+- Stage: prepare a fresh full LongBench-E baseline/dynamic/static evaluation retry
+- Active command ID: none; the next full run must use a new unique ID
+- Verified smoke execution ID: `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34`
+- Verified smoke audit ID: `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964`
 - Failed evaluation ID: `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
 - Prior training command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
 - Verification command ID: `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a`
 - Bridge: `G:\My Drive\PQ_agent`
-- State: pinned-revision download/schema preflight returned matching code 0 for all
-  13 datasets and 3,668 samples. The full evaluation is awaiting manual
-  interruption at the user's request; a command-selectable smoke-test run is next.
+- State: the command-selectable smoke test and its independent artifact audit both
+  returned matching code 0. All 18 predictions and their CSV summaries reconciled.
+  The full 13-dataset evaluation is next and its outputs must replace the smoke
+  artifacts before final reporting.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
 - Selection method: use the unique standalone LongBench-cell source marker because
@@ -59,6 +62,15 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - Each side: 288 heads, 64 groups, 4,096 fine files, 4,096 coarse files, and
   4,096 LUT files.
 - Static masks: 576 heads with 3 calibration-derived dimensions per head.
+
+## Verified Smoke Metrics (Diagnostic Only)
+
+- Dataset-average baseline: `77.77777777777777`.
+- Dataset-average dynamic PQ: `66.36363636363636`.
+- Dataset-average static top-3 PQ: `64.44444444444444`.
+- Scope: qasper, hotpotqa, and passage_retrieval_en; two samples per dataset and
+  mode, 18 predictions total. These scores must not be reported as final
+  LongBench-E results.
 
 ## Bridge Loop
 

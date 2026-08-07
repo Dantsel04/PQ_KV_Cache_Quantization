@@ -8,7 +8,7 @@ This repository contains a Jupytext-managed Google Colab workflow for Qwen3-8B
 KV-cache product quantization. `KV_Cache.py` is the editable source and
 `KV_Cache.ipynb` is the synced Colab artifact.
 
-- Published verified-training checkpoint: `22cb8d5` on `main`.
+- Published smoke-mode source checkpoint: `67c5657` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
 - `py -m jupytext --sync KV_Cache.ipynb`: passed.
 - Static configuration checks passed for held-out calibration, 4096-token
@@ -54,6 +54,14 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 - LongBench smoke mode can now be selected per bridge command with
   `PQ_LONGBENCH_TEST_MODE=1`; full evaluation remains the default. Smoke mode uses
   three datasets, two samples per dataset, and a 64-token generation cap.
+- Smoke execution `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34`
+  returned code 0. Independent artifact audit
+  `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964` returned code 0
+  and reconciled all 18 prediction records, 9 summary rows, 3 comparison rows,
+  and the aggregate result. Diagnostic dataset-average scores were baseline
+  `77.77777777777777`, dynamic `66.36363636363636`, and static
+  `64.44444444444444`. These two-sample smoke scores are not final benchmark
+  results.
 
 ## Colab Bridge Contract
 
@@ -83,6 +91,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-longbench-data-preflight-d46390595570438da3429edfe529a40b` | Data preflight candidate 1 | 1 | Candidate revision contained early converted configs but predated `trec_e`. |
 | `pq-longbench-revision-probe-abace52f0e6f4ee3937bd2f695632114` | Complete revision probe | 0 | Verified a test Parquet shard for each of all 13 LongBench-E configs at revision `36914d6211386125c6fc4ce7db4a6a777fadd34c`. |
 | `pq-longbench-data-preflight-57f3129627314f75b7791cc2bb5437a4` | Full data/schema preflight | 0 | Downloaded and opened all 13 shards, verified required columns, and counted 3,668 samples. |
+| `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34` | Three-dataset LongBench smoke execution | 0 | Executed baseline, dynamic, then static evaluation for two samples on each of qasper, hotpotqa, and passage_retrieval_en. |
+| `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964` | Smoke artifact audit | 0 | Verified and reconciled 18 predictions, 9 summaries, 3 comparisons, and one aggregate row; scores are diagnostic only. |
 
 ## Implemented LongBench-E Configuration
 
@@ -120,11 +130,7 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 
 ## Next Steps for the Goal Chat
 
-1. Wait for confirmation that evaluation
-   `pq-longbench-e-107ac5e62ab54a7c94c2c975c0838832` was manually interrupted.
-2. Run the command-selectable LongBench smoke test under a new unique ID and audit
-   its diagnostic outputs. Do not report smoke scores as final benchmark results.
-3. Restore/run the full evaluation under a new unique ID, accept only its exact
+1. Restore/run the full evaluation under a new unique ID, accept only its exact
    matching terminal result, and independently audit all output artifacts.
-4. Update `PLAN.md`, this file, and `LONGBENCH_E_RESULTS.md` after each verified
+2. Update `PLAN.md`, this file, and `LONGBENCH_E_RESULTS.md` after each verified
    checkpoint; commit and push meaningful source/documentation changes.
