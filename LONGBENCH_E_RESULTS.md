@@ -10,6 +10,11 @@ benchmark score was produced. The loader is now pinned to immutable revision
 `36914d6211386125c6fc4ce7db4a6a777fadd34c`, whose matching probe verified all 13
 required LongBench-E Parquet configs before retry.
 
+Full data/schema preflight `pq-longbench-data-preflight-57f3129627314f75b7791cc2bb5437a4`
+also returned code 0, opened every shard with the required columns, and counted
+3,668 evaluation samples. Full retry
+`pq-longbench-e-107ac5e62ab54a7c94c2c975c0838832` is the active command.
+
 No NMSE or LongBench-E score is reported without a matching successful Colab bridge
 result.
 

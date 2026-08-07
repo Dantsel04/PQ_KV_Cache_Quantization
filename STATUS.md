@@ -44,6 +44,11 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   `pq-longbench-revision-probe-abace52f0e6f4ee3937bd2f695632114` returned code 0
   and verified all 13 required `_e` configs at immutable revision
   `36914d6211386125c6fc4ce7db4a6a777fadd34c`.
+- Full download/schema preflight
+  `pq-longbench-data-preflight-57f3129627314f75b7791cc2bb5437a4` returned code 0:
+  all 13 shards opened with the required standardized columns and 3,668 total
+  LongBench-E samples. Evaluation retry
+  `pq-longbench-e-107ac5e62ab54a7c94c2c975c0838832` is ready for submission.
 
 ## Colab Bridge Contract
 
@@ -72,6 +77,7 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf` | Full LongBench-E attempt 1 | 1 | Model and both codebook sets loaded; failed before inference because current repository `main` lacked direct `qasper_e` Parquet shards. |
 | `pq-longbench-data-preflight-d46390595570438da3429edfe529a40b` | Data preflight candidate 1 | 1 | Candidate revision contained early converted configs but predated `trec_e`. |
 | `pq-longbench-revision-probe-abace52f0e6f4ee3937bd2f695632114` | Complete revision probe | 0 | Verified a test Parquet shard for each of all 13 LongBench-E configs at revision `36914d6211386125c6fc4ce7db4a6a777fadd34c`. |
+| `pq-longbench-data-preflight-57f3129627314f75b7791cc2bb5437a4` | Full data/schema preflight | 0 | Downloaded and opened all 13 shards, verified required columns, and counted 3,668 samples. |
 
 ## Implemented LongBench-E Configuration
 
@@ -109,8 +115,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 
 ## Next Steps for the Goal Chat
 
-1. Validate all 13 LongBench-E Parquet configs at the pinned immutable revision.
-2. Retry full evaluation under a new unique command ID only after that preflight.
+1. Monitor evaluation retry `pq-longbench-e-107ac5e62ab54a7c94c2c975c0838832`.
+2. Accept only its exact matching terminal bridge result.
 3. Independently audit aggregate and per-dataset CSV outputs after evaluation.
 4. Update `PLAN.md`, this file, and `LONGBENCH_E_RESULTS.md` after each verified
    checkpoint; commit and push meaningful source/documentation changes.
