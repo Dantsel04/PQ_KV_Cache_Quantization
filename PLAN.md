@@ -25,8 +25,8 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - [x] Publish revision `da0056f` to GitHub.
 - [x] Verify Colab CUDA and NVIDIA L4 availability.
 - [x] Download and verify Qwen3-8B under `/content/qwen3_8B`.
-- [ ] Complete held-out calibration-vector extraction.
-- [ ] Verify the calibration manifest and key/value train/test arrays.
+- [x] Complete held-out calibration-vector extraction.
+- [x] Verify the calibration manifest and key/value train/test arrays.
 - [ ] Train key and value 64 x 128 codebooks.
 - [ ] Verify head maps, runtime compatibility, NMSE reports, and static masks.
 - [ ] Run the full LongBench-E baseline/dynamic/static suite.
@@ -35,12 +35,12 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 
 ## Active Command
 
-- Stage: calibration extraction retry
-- Command ID: `pq-extract-0a5600d2d5cb45e29d889cd9af035fb7`
+- Stage: codebook training preparation
+- Command ID: not yet submitted
 - Bridge: `G:\My Drive\PQ_agent`
-- State at handoff: pending; ignore the older extraction result.
-- Selection method: unique extraction source marker, because notebook cell IDs are
-  absent after Jupytext sync.
+- Prior gate: extraction and its artifact audit both returned matching code 0.
+- Selection method: use the unique training-cell source marker because notebook cell
+  IDs are absent after Jupytext sync.
 
 ## Bridge Loop
 

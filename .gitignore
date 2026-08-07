@@ -10,3 +10,4 @@ longbench_pq_outputs/
 longbench_pq_*.csv
 outlier_*.csv
 outlier_*.json
+bridge-match-*.json
