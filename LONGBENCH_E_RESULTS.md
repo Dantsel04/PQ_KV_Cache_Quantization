@@ -6,8 +6,9 @@ The GPU pipeline is in progress. Environment/model setup, held-out calibration
 extraction, and key/value codebook training are verified. Full LongBench-E attempt
 `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf` returned code 1 before inference
 because the repository's current branch lacked the direct Parquet layout. No
-benchmark score was produced; the loader is being pinned to immutable revision
-`ac0b1359dbaf4d185394d0f78b1041813fbe5a54` before retry.
+benchmark score was produced. The loader is now pinned to immutable revision
+`36914d6211386125c6fc4ce7db4a6a777fadd34c`, whose matching probe verified all 13
+required LongBench-E Parquet configs before retry.
 
 No NMSE or LongBench-E score is reported without a matching successful Colab bridge
 result.

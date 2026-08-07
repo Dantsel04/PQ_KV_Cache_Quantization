@@ -38,8 +38,12 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 - Full evaluation attempt `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
   returned code 1 before inference: the current LongBench repository branch no
   longer exposed the expected `qasper_e` Parquet path. The loader is being fixed to
-  pin immutable Parquet revision
-  `ac0b1359dbaf4d185394d0f78b1041813fbe5a54`; no benchmark scores were produced.
+  pin an immutable complete Parquet revision; no benchmark scores were produced.
+- Data preflight `pq-longbench-data-preflight-d46390595570438da3429edfe529a40b`
+  showed that the first candidate revision predated `trec_e`. Revision probe
+  `pq-longbench-revision-probe-abace52f0e6f4ee3937bd2f695632114` returned code 0
+  and verified all 13 required `_e` configs at immutable revision
+  `36914d6211386125c6fc4ce7db4a6a777fadd34c`.
 
 ## Colab Bridge Contract
 
@@ -66,6 +70,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-train-e80750afac6c45ac8a30322536a84957` | K/V codebook training | 0 | Trained both 64-bank x 128-codeword sides, passed runtime compatibility, wrote held-out NMSE reports, and produced 576 calibration-static masks. |
 | `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a` | Codebook artifact audit | 0 | Parsed every fine/coarse/LUT artifact, verified both 288-head maps and 64 groups, validated finite NMSE, and checked all static masks. |
 | `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf` | Full LongBench-E attempt 1 | 1 | Model and both codebook sets loaded; failed before inference because current repository `main` lacked direct `qasper_e` Parquet shards. |
+| `pq-longbench-data-preflight-d46390595570438da3429edfe529a40b` | Data preflight candidate 1 | 1 | Candidate revision contained early converted configs but predated `trec_e`. |
+| `pq-longbench-revision-probe-abace52f0e6f4ee3937bd2f695632114` | Complete revision probe | 0 | Verified a test Parquet shard for each of all 13 LongBench-E configs at revision `36914d6211386125c6fc4ce7db4a6a777fadd34c`. |
 
 ## Implemented LongBench-E Configuration
 

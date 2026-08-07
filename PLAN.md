@@ -41,8 +41,9 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - Verification command ID: `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a`
 - Bridge: `G:\My Drive\PQ_agent`
 - State: evaluation attempt returned code 1 before inference because repository
-  `main` lacked direct Parquet shards. Pin and preflight immutable revision
-  `ac0b1359dbaf4d185394d0f78b1041813fbe5a54` before retrying.
+  `main` lacked direct Parquet shards. The complete-config revision probe passed for
+  `36914d6211386125c6fc4ce7db4a6a777fadd34c`; download/schema preflight remains
+  before retrying.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
 - Selection method: use the unique standalone LongBench-cell source marker because

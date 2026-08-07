@@ -5047,8 +5047,8 @@ LONG_BENCH_REPOS = ["zai-org/LongBench", "THUDM/LongBench"]
 # Pin the converted Parquet tree. The repository's current main branch can point
 # back to the legacy data.zip layout, which makes a main-branch file listing
 # nondeterministic for direct-Parquet loading.
-LONG_BENCH_REVISION = "ac0b1359dbaf4d185394d0f78b1041813fbe5a54"
-LONG_BENCH_LOADER_VERSION = "parquet-local-v4-pinned-ac0b135"
+LONG_BENCH_REVISION = "36914d6211386125c6fc4ce7db4a6a777fadd34c"
+LONG_BENCH_LOADER_VERSION = "parquet-local-v4-pinned-36914d6"
 LONG_BENCH_E_DATASETS = [
     "qasper", "multifieldqa_en", "hotpotqa", "2wikimqa", "gov_report",
     "multi_news", "trec", "triviaqa", "samsum", "passage_count",
