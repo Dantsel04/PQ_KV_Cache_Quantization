@@ -392,9 +392,8 @@ if __name__ == "__main__":
 #      but WHICH documents are held out is now randomized, and there are ~40 of them
 #      instead of ~6. Do NOT change this to a position-level shuffle: that would put
 #      positions from the same document on both sides and bias the gate.
-#   4. TASK MIX. `lcc` (source code) dropped -- a different activation regime from
-#      English multi-doc QA. Remaining tasks are weighted toward multi-doc QA, which
-#      is what hotpotqa is.
+#   4. TASK MIX. Calibration uses LongBench v1 tasks excluded from LongBench-E,
+#      spanning QA, summarization, retrieval, classification, and Chinese text.
 #   5. fp16 STORAGE. The trainer does .astype(np.float32) on load anyway, so this is
 #      lossless in effect and halves disk + Drive sync time.
 #
@@ -440,14 +439,18 @@ from transformers import AutoTokenizer
 # =====================================================================================
 
 MODEL_DIR = "/content/qwen3_8B"
-PQ_OUTPUT_DIR = f"{MODEL_DIR}/pq_training_data_longbench"
+PQ_OUTPUT_DIR = f"{MODEL_DIR}/pq_training_data_longbench_e_held_out_4096"
 SHARD_DIR = f"{PQ_OUTPUT_DIR}/_shards"          # per-document, enables resume
 LONGBENCH_ROOT = "/content/longbench_data"
 
-CALIBRATION_MODE = "contaminated"        # held_out | matched | contaminated
+CALIBRATION_MODE = "held_out"        # held_out | matched | contaminated
 
 # What you evaluate on. Excluded from calibration in held_out mode.
-EVAL_TASKS = ["hotpotqa"]
+EVAL_TASKS = [
+    "qasper", "multifieldqa_en", "hotpotqa", "2wikimqa", "gov_report",
+    "multi_news", "trec", "triviaqa", "samsum", "passage_count",
+    "passage_retrieval_en", "lcc", "repobench-p",
+]
 EVAL_SAMPLES_PER_TASK = 200          # only used by "matched" / "contaminated" modes
 
 # Calibration pool, weighted. hotpotqa is English multi-doc QA, so the multi-doc QA
@@ -457,22 +460,26 @@ EVAL_SAMPLES_PER_TASK = 200          # only used by "matched" / "contaminated" m
 # `lcc` was removed deliberately: code activations are a different regime and it was
 # 1/7 of the previous pool. Add it back only if you start evaluating on code tasks.
 CALIB_TASK_WEIGHTS = {
-    "2wikimqa":    3,    # multi-doc QA, same shape as hotpotqa, different data
-    "musique":     3,    # multi-doc QA
-    "qasper":      2,    # single-doc QA, scientific text
-    "narrativeqa": 2,    # single-doc QA, long narrative
-    "multi_news":  1,    # summarization
-    "triviaqa":    1,    # few-shot QA
+    # LongBench v1 tasks excluded from LongBench-E. This gives broad task coverage
+    # without using any task that contributes to the reportable LongBench-E score.
+    "narrativeqa":          3,  # long single-document QA
+    "musique":              3,  # multi-document reasoning
+    "qmsum":                2,  # long meeting summarization
+    "multifieldqa_zh":      2,  # Chinese single-document QA
+    "dureader":             2,  # Chinese QA
+    "passage_retrieval_zh": 2,  # retrieval activation regime
+    "vcsum":                1,  # Chinese dialogue summarization
+    "lsht":                 1,  # classification
 }
 
 # Number of DISTINCT DOCUMENTS. This is the number that was too low before (56).
 # Memory does not scale with it -- VECTORS_PER_HEAD is fixed and positions per
 # document are derived by division. Ceiling is the pool size: most LongBench tasks
 # have 200 samples, so with the weights above the practical max is ~1200.
-NUM_CALIB_SAMPLES = 400
+NUM_CALIB_SAMPLES = 800
 
-MAX_INPUT_LENGTH = 8192              # must match the eval harness
-VECTORS_PER_HEAD = 20000             # per layer/head, before the train/test split
+MAX_INPUT_LENGTH = 4096              # exactly matches the eval harness
+VECTORS_PER_HEAD = 40000             # per layer/head, before the train/test split
 TEST_FRACTION = 0.10                 # fraction of DOCUMENTS held out for the MSE gate
 SAVE_DTYPE = np.float16              # trainer upcasts to f32 on load
 SEED = 0
@@ -481,7 +488,10 @@ CHECKPOINT_RESUME = True             # skip documents whose shard already exists
 DELETE_SHARDS_AFTER = False          # set True to reclaim ~3GB once assembly succeeds
 
 BACKUP_TO_DRIVE = True
-DRIVE_PQ_PATH = f"/content/drive/MyDrive/qwen3_8B/pq_training_data_longbench"
+DRIVE_PQ_PATH = (
+    "/content/drive/MyDrive/qwen3_8B/"
+    "pq_training_data_longbench_e_held_out_4096"
+)
 
 
 # =====================================================================================
@@ -531,15 +541,9 @@ def load_dataset2prompt():
 
 
 def build_prompt(sample, dataset, tokenizer, prompts, max_length=MAX_INPUT_LENGTH):
-    """Identical to the eval harness: template, middle-out truncation, chat template."""
+    """Return token IDs using the evaluator's template/chat/truncation order."""
     prompt = prompts[dataset].format(**sample)
-
-    tokenized = tokenizer(prompt, truncation=False, return_tensors="pt").input_ids[0]
-    if len(tokenized) > max_length:
-        half = int(max_length / 2)
-        prompt = (tokenizer.decode(tokenized[:half], skip_special_tokens=True)
-                  + tokenizer.decode(tokenized[-half:], skip_special_tokens=True))
-
+    used_chat_template = False
     if dataset not in NO_CHAT_TEMPLATE:
         try:
             prompt = tokenizer.apply_chat_template(
@@ -549,7 +553,13 @@ def build_prompt(sample, dataset, tokenizer, prompts, max_length=MAX_INPUT_LENGT
             prompt = tokenizer.apply_chat_template(
                 [{"role": "user", "content": prompt}], tokenize=False,
                 add_generation_prompt=True)
-    return prompt
+        used_chat_template = True
+
+    token_ids = tokenizer.encode(prompt, add_special_tokens=not used_chat_template)
+    if len(token_ids) > max_length:
+        first = max_length // 2
+        token_ids = token_ids[:first] + token_ids[-(max_length - first):]
+    return token_ids
 
 
 def allocate_per_task(pool_tasks, weights, total, availability):
@@ -704,8 +714,7 @@ class QwenRMSNorm(nn.Module):
 
 
 class QwenRotaryEmbedding(nn.Module):
-    """Shared across layers. The original built one per layer with a 2048 default,
-    which silently breaks at 8192."""
+    """Shared across layers and sized to the pinned evaluation context."""
 
     def __init__(self, dim, max_position_embeddings, base=1000000.0, device=None):
         super().__init__()
@@ -768,7 +777,7 @@ class QwenAttention(nn.Module):
 
         # Capture here: post-k_norm, PRE-RoPE. Same point the eval quantizes.
         # Only the sampled positions are pulled to CPU, which is what keeps this
-        # bounded at 8192 context. Do not move this below the cos/sin multiply --
+        # bounded at long context. Do not move this below the cos/sin multiply --
         # RoPE mixes the (c, c+64) channel pairs and destroys the channel-magnitude
         # structure the codebooks and the outlier dims both depend on.
         captured = (
@@ -898,8 +907,8 @@ def extract_shards(model, tokenizer, prompts, chosen):
             skipped += 1
             continue
 
-        prompt = build_prompt(sample, task, tokenizer, prompts, MAX_INPUT_LENGTH)
-        input_ids = tokenizer(prompt, truncation=False, return_tensors="pt").input_ids
+        prompt_ids = build_prompt(sample, task, tokenizer, prompts, MAX_INPUT_LENGTH)
+        input_ids = torch.tensor([prompt_ids], dtype=torch.long)
         seq_len = input_ids.shape[1]
 
         if seq_len < per_sample:
@@ -2032,7 +2041,7 @@ MODEL_NAME = "qwen3_8B"
 DRIVE_BASE = f"/content/{MODEL_NAME}"
 
 # Output produced by the LongBench calibration-vector extraction script.
-TRAINING_DATA_NAME = "pq_training_data_longbench"
+TRAINING_DATA_NAME = "pq_training_data_longbench_e_held_out_4096"
 TRAINING_DATA_ROOT = os.path.join(DRIVE_BASE, TRAINING_DATA_NAME)
 CALIBRATION_MANIFEST = os.path.join(TRAINING_DATA_ROOT, "calibration_manifest.json")
 
@@ -2051,8 +2060,8 @@ CODEWORDS = 128
 
 # Tuned for the new extraction's supply (~18k train vectors per head). The old
 # 50000/5000 pair silently triggered replace=True oversampling for small groups.
-TARGET_TRAIN_SIZE = 30000
-MIN_VECTORS_PER_HEAD = 4000
+TARGET_TRAIN_SIZE = 50000
+MIN_VECTORS_PER_HEAD = 5000
 
 # When a group cannot supply per_head_target vectors, cap at what exists rather than
 # duplicating points. 18k points for 128 centroids in 2D is ~140 points/centroid,
@@ -2070,7 +2079,12 @@ DRIVE_OUTPUT_BASE = f"/content/drive/MyDrive/{MODEL_NAME}"
 
 # Keep these codebooks separate from the original WikiText-trained codebooks.
 EXPECTED_CALIBRATION_MODE = "held_out"
-CODEBOOK_TAG = f"longbench_{EXPECTED_CALIBRATION_MODE}_balanced_kpp_noclip"
+EXPECTED_EVAL_TASKS = {
+    "qasper", "multifieldqa_en", "hotpotqa", "2wikimqa", "gov_report",
+    "multi_news", "trec", "triviaqa", "samsum", "passage_count",
+    "passage_retrieval_en", "lcc", "repobench-p",
+}
+CODEBOOK_TAG = f"longbench_e_{EXPECTED_CALIBRATION_MODE}_4096_balanced_kpp_noclip"
 CODEBOOK_NAME = (
     f"codebooks_{NUM_SUBVECTORS}_{CODEWORDS}_{CLUSTERS}_{CODEBOOK_TAG}"
 )
@@ -2083,6 +2097,8 @@ RUN_MSE_CHECK = True
 MSE_MAX_VECTORS_PER_HEAD = 2000     # cap for speed; the check should take seconds
 MSE_OUTLIER_DIMS = 3                # mirrors what the eval keeps in fp16
 MSE_REPORT_NAME = "codebook_mse_report.json"
+STATIC_OUTLIER_DIMS = 3
+STATIC_MASK_REPORT_NAME = "static_outlier_masks.json"
 
 # Optional: an existing codebook root to compare against (must contain keys/ and
 # values/ with their own head_to_codebook_map.json). Set to None to skip.
@@ -2157,9 +2173,9 @@ def load_and_validate_calibration_manifest():
             "a different calibration variant."
         )
 
-    if int(manifest.get("max_input_length", -1)) != 8192:
+    if int(manifest.get("max_input_length", -1)) != 4096:
         warnings.warn(
-            "Calibration max_input_length is not 8192; results may not be "
+            "Calibration max_input_length is not 4096; results may not be "
             "directly comparable to the pinned evaluation."
         )
 
@@ -2168,6 +2184,11 @@ def load_and_validate_calibration_manifest():
         raise ValueError("Calibration manifest contains no source samples.")
 
     eval_tasks = set(manifest.get("eval_tasks", []))
+    if eval_tasks != EXPECTED_EVAL_TASKS:
+        raise ValueError(
+            "Calibration manifest eval_tasks do not match the pinned LongBench-E "
+            f"suite. Expected {sorted(EXPECTED_EVAL_TASKS)}, got {sorted(eval_tasks)}."
+        )
     calib_tasks_used = {row.get("task") for row in samples}
     overlap = sorted(eval_tasks & calib_tasks_used)
     if mode == "held_out" and overlap:
@@ -2576,7 +2597,14 @@ def load_raw_data_for_group(file_paths, target_total, min_per_head, tensor_type=
     if num_heads == 0:
         raise ValueError("Empty group")
 
-    # The total is capped exactly. Each head gets an approximately equal allocation.
+    if target_total < num_heads * min_per_head:
+        raise ValueError(
+            f"TARGET_TRAIN_SIZE={target_total} cannot provide MIN_VECTORS_PER_HEAD="
+            f"{min_per_head} to {num_heads} heads."
+        )
+
+    # The total is capped exactly. Each head gets an approximately equal allocation,
+    # with the configured minimum now enforced rather than merely logged.
     per_head_base = target_total // num_heads
     remainder = target_total % num_heads
 
@@ -2676,7 +2704,7 @@ def assign_chunk_gemm(x_chunk, centroids):
     return labels
 
 
-def compute_inertia(x, centroids, chunk_size):
+def compute_inertia(x, centroids, chunk_size, reduce=True):
     """Mean within-cluster squared distance, averaged over subspaces. Cheap sanity
     number: if this barely improves over a random-init baseline, k-means stopped early."""
     s_count, n, dim = x.shape
@@ -2694,7 +2722,10 @@ def compute_inertia(x, centroids, chunk_size):
 
         del x_chunk, x_sq, c_sq, prod, dist
 
-    return (total / max(n, 1)).mean().item()
+    per_subspace = total / max(n, 1)
+    if reduce:
+        return per_subspace.mean().item()
+    return per_subspace.detach().cpu().numpy().astype(np.float64)
 
 
 def _batched_kmeans_cuda_single(
@@ -2805,7 +2836,8 @@ def _batched_kmeans_cuda_single(
 
         final_labels_cpu = torch.cat(final_labels, dim=1).numpy().astype(np.int32)
 
-    inertia = compute_inertia(x, centroids, chunk_size)
+    inertia_per_subspace = compute_inertia(x, centroids, chunk_size, reduce=False)
+    inertia = float(np.mean(inertia_per_subspace))
 
     if stats is not None:
         stats.update({
@@ -2814,6 +2846,7 @@ def _batched_kmeans_cuda_single(
             "converged": bool(last_rel_shift < tol),
             "final_rel_shift": float(last_rel_shift),
             "inertia": float(inertia),
+            "inertia_per_subspace": inertia_per_subspace.tolist(),
         })
 
     centroids_np = centroids.detach().cpu().numpy().astype(np.float32)
@@ -2835,7 +2868,11 @@ def batched_kmeans_cuda(
     stats=None,
     restarts=1,
 ):
-    """Run multiple independent initializations and retain the lowest-inertia result."""
+    """Run independent initializations and retain the best result per subspace.
+
+    Fine PQ banks are independent objectives. Selecting one whole batched restart by
+    aggregate inertia can discard a better solution for many individual banks.
+    """
     best_centroids = None
     best_labels = None
     best_stats = None
@@ -2854,17 +2891,39 @@ def batched_kmeans_cuda(
             stats=run_stats,
         )
 
-        inertia = run_stats["inertia"]
-        if inertia < best_inertia:
-            best_inertia = inertia
-            best_centroids = centroids
+        inertia_by_subspace = np.asarray(
+            run_stats["inertia_per_subspace"], dtype=np.float64)
+        inertia = float(inertia_by_subspace.mean())
+
+        if best_centroids is None:
+            best_centroids = centroids.copy()
             best_labels = labels
-            best_stats = run_stats
+            best_stats = dict(run_stats)
+            best_per_subspace = inertia_by_subspace.copy()
+        elif return_labels:
+            # The coarse stage needs a single internally consistent LUT. It currently
+            # uses one restart, but retain aggregate selection if that is changed.
+            if inertia < best_inertia:
+                best_centroids = centroids.copy()
+                best_labels = labels
+                best_stats = dict(run_stats)
+                best_per_subspace = inertia_by_subspace.copy()
+        else:
+            improved = inertia_by_subspace < best_per_subspace
+            best_centroids[improved] = centroids[improved]
+            best_per_subspace[improved] = inertia_by_subspace[improved]
+
+        best_inertia = float(best_per_subspace.mean())
 
     if stats is not None:
         stats.update(best_stats)
         stats["restarts"] = int(restarts)
         stats["best_inertia"] = float(best_inertia)
+        stats["inertia"] = float(best_inertia)
+        stats["inertia_per_subspace"] = best_per_subspace.tolist()
+        stats["restart_selection"] = (
+            "aggregate" if return_labels else "per_subspace"
+        )
 
     return best_centroids, best_labels
 
@@ -3363,6 +3422,28 @@ def run_pipeline_for_tensor_type(tensor_type="keys"):
     return mse_results
 
 
+def build_calibration_static_masks():
+    """Learn reportable static masks from calibration training vectors, not eval data."""
+    payload = {}
+    for tensor_type in ["keys", "values"]:
+        data_dir = os.path.join(TRAINING_DATA_ROOT, tensor_type)
+        for path in tqdm(
+            sorted(glob.glob(os.path.join(data_dir, "*_Train.npy"))),
+            desc=f"Static masks [{tensor_type}]",
+        ):
+            head = os.path.basename(path).replace("_Train.npy", "")
+            data = np.load(path, mmap_mode="r")
+            mean_abs = np.mean(np.abs(data.astype(np.float32)), axis=0)
+            dims = np.argsort(mean_abs)[-STATIC_OUTLIER_DIMS:][::-1]
+            payload[f"{tensor_type}/{head}"] = [int(x) for x in dims]
+
+    report_path = os.path.join(DRIVE_BASE, CODEBOOK_NAME, STATIC_MASK_REPORT_NAME)
+    with open(report_path, "w") as f:
+        json.dump(payload, f, indent=2)
+    print(f"Calibration-derived static masks: {report_path} ({len(payload)} heads)")
+    return report_path
+
+
 if __name__ == "__main__":
     set_seed(SEED)
     setup_torch()
@@ -3380,6 +3461,7 @@ if __name__ == "__main__":
     mse_all["values"] = run_pipeline_for_tensor_type("values")
 
     validate_runtime_compatibility()
+    build_calibration_static_masks()
 
     # ---- summary ---------------------------------------------------------------------
     print("\n============================================================")
@@ -4952,7 +5034,7 @@ PQ_CHUNK_SIZE = 64
 
 # LongBench v1 / LongBench-E evaluation.
 # TEST_MODE is a small end-to-end smoke test. Set it to False for the selected full datasets.
-TEST_MODE = True
+TEST_MODE = False
 USE_LONG_BENCH_E = True
 MAX_SAMPLES_PER_DATASET = 2 if TEST_MODE else None
 MAX_INPUT_TOKENS = 4096
@@ -4995,27 +5077,32 @@ STATIC_OUTLIER_OVERALL_CSV = "outlier_static_reuse_overall_longbench.csv"
 STATIC_OUTLIER_BY_HEAD_CSV = "outlier_static_reuse_by_head_longbench.csv"
 
 # ============================================================
-# Priority 1 Mixed Config
-# Keys:   32 banks x 2048 words, C4,  out2
-# Values: 32 banks x 1024 words, C16, out1
-# Average bits/scalar = 2.8125
+# Reportable LongBench-E configuration. Keys and values use the same 64-bank,
+# 128-codeword capacity and the exact versioned output of the trainer above.
 # ============================================================
+
+LONGBENCH_E_CODEBOOK_DIR = os.path.join(
+    MODEL_DIR,
+    "codebooks_64_128_64_longbench_e_held_out_4096_balanced_kpp_noclip",
+)
 
 KEY_CONFIG = {
     "num_sub_vectors": 64,
     "num_codewords": 128,
     "clusters": 64,
     "outlier_dims": 3,
+    "codebook_dir": LONGBENCH_E_CODEBOOK_DIR,
 }
 
 VALUE_CONFIG = {
     "num_sub_vectors": 64,
-    "num_codewords": 32,
-    "clusters": 128,
+    "num_codewords": 128,
+    "clusters": 64,
     "outlier_dims": 3,
+    "codebook_dir": LONGBENCH_E_CODEBOOK_DIR,
 }
 
-EXPERIMENT_NAME = "K64x128_C64_out2__V64x128_C64_out1"
+EXPERIMENT_NAME = "LongBenchE_K64x128_C64_out3__V64x128_C64_out3"
 
 
 # ============================================================
@@ -6694,6 +6781,28 @@ def save_static_masks(static_masks, json_path=STATIC_MASK_JSON, csv_path=STATIC_
     pd.DataFrame(rows).to_csv(csv_path, index=False)
 
 
+def load_calibration_static_masks(codebook_dir):
+    path = os.path.join(codebook_dir, "static_outlier_masks.json")
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"Missing calibration-derived static masks: {path}. "
+            "Run the improved codebook trainer before LongBench-E evaluation."
+        )
+    with open(path, "r") as f:
+        raw = json.load(f)
+
+    masks = {}
+    for key, dims in raw.items():
+        side, head_name = key.split("/", 1)
+        match = re.fullmatch(r"L(\d+)_H(\d+)", head_name)
+        if match is None:
+            raise ValueError(f"Malformed static-mask key: {key}")
+        masks[(side, int(match.group(1)), int(match.group(2)))] = tuple(
+            int(x) for x in dims
+        )
+    return masks, path
+
+
 def save_tracker_csvs(tracker, overall_csv, by_head_csv):
     pd.DataFrame(tracker.overall_rows()).to_csv(overall_csv, index=False)
     pd.DataFrame(tracker.head_rows(only_unstable_or_token_mismatch=False)).to_csv(by_head_csv, index=False)
@@ -6803,13 +6912,16 @@ if __name__ == "__main__":
     dynamic_tracker = pq_manager.outlier_tracker
     dynamic_tracker.print_summary()
 
-    section("Building static top-k masks from dynamic LongBench writes")
-    static_masks = dynamic_tracker.build_static_masks()
+    section("Loading held-out calibration static masks")
+    static_masks, static_mask_source = load_calibration_static_masks(
+        LONGBENCH_E_CODEBOOK_DIR
+    )
     save_static_masks(static_masks, json_path=STATIC_MASK_JSON, csv_path=STATIC_MASK_CSV)
     print_kv_table(
         "Static mask summary",
         [
             ("masks learned", len(static_masks)),
+            ("source", static_mask_source),
             ("json", STATIC_MASK_JSON),
             ("csv", STATIC_MASK_CSV),
         ],

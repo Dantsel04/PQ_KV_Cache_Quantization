@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+# Generated calibration, codebook, and benchmark artifacts stay out of Git.
+pq_training_data*/
+codebooks_*/
+longbench_pq_outputs/
+*.npy
+*.npz
+longbench_pq_*.csv
+outlier_*.csv
+outlier_*.json

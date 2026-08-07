@@ -75,8 +75,8 @@ Cells: lines 403-1156
 
 What it does:
 - Replaces simple WikiText calibration with a LongBench-based extraction pipeline.
-- Selects calibration samples according to `CALIBRATION_MODE`: `held_out`, `matched`, or `contaminated`.
-- Builds prompts with the same template/truncation/chat-template logic intended for evaluation.
+- Defaults to reportable task-held-out calibration against the full LongBench-E suite.
+- Builds prompts with the same template, chat-template, and 4096-token middle-truncation order as evaluation.
 - Captures post-`k_norm`, pre-RoPE key vectors and raw value vectors at sampled positions.
 - Writes one resumable shard per document, then assembles document-level train/test splits.
 - Writes a provenance manifest and optionally backs up outputs to Google Drive.
@@ -93,13 +93,13 @@ Inputs:
 - Calibration config: `EVAL_TASKS`, `CALIB_TASK_WEIGHTS`, `NUM_CALIB_SAMPLES`, `MAX_INPUT_LENGTH`, `VECTORS_PER_HEAD`, `TEST_FRACTION`.
 
 Outputs:
-- Shards: `/content/qwen3_8B/pq_training_data_longbench/_shards/*.npz`.
+- Shards: `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/_shards/*.npz`.
 - Training/test tensors:
-  - `/content/qwen3_8B/pq_training_data_longbench/keys/L{layer}_H{head}_Train.npy`
-  - `/content/qwen3_8B/pq_training_data_longbench/keys/L{layer}_H{head}_Test.npy`
+  - `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/keys/L{layer}_H{head}_Train.npy`
+  - `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/keys/L{layer}_H{head}_Test.npy`
   - matching `values` files.
 - `calibration_manifest.json`.
-- Optional Drive backup at `/content/drive/MyDrive/qwen3_8B/pq_training_data_longbench`.
+- Optional Drive backup at `/content/drive/MyDrive/qwen3_8B/pq_training_data_longbench_e_held_out_4096`.
 
 Dependencies:
 - Requires downloaded Qwen3 8B model files and tokenizer.
@@ -192,8 +192,9 @@ What it does:
 - Trains codebooks from the LongBench extraction output instead of WikiText calibration.
 - Validates calibration provenance before training.
 - Uses balanced group-size constraints for head clusters.
-- Improves k-means with k-means++ initialization, multiple restarts, relative tolerance, and inertia reporting.
+- Improves k-means with k-means++ initialization, multiple restarts, per-subvector best-restart selection, relative tolerance, and inertia reporting.
 - Adds a held-out reconstruction MSE check against `*_Test.npy` vectors, with optional baseline comparison.
+- Learns static outlier masks from calibration vectors rather than evaluation samples.
 
 Important functions/classes:
 - Manifest validation: `load_and_validate_calibration_manifest`.
@@ -203,15 +204,15 @@ Important functions/classes:
 - Output/validation: `save_group_codebooks`, `write_head_map`, `write_cluster_summary`, `validate_generated_codebooks`, `validate_runtime_compatibility`, `run_pipeline_for_tensor_type`.
 
 Inputs:
-- `/content/qwen3_8B/pq_training_data_longbench/{keys,values}/*_Train.npy`.
-- `/content/qwen3_8B/pq_training_data_longbench/{keys,values}/*_Test.npy`.
-- `/content/qwen3_8B/pq_training_data_longbench/calibration_manifest.json`.
+- `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/{keys,values}/*_Train.npy`.
+- `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/{keys,values}/*_Test.npy`.
+- `/content/qwen3_8B/pq_training_data_longbench_e_held_out_4096/calibration_manifest.json`.
 - Optional baseline codebooks at `/content/qwen3_8B/codebooks_64_128_64`.
 
 Outputs:
-- Versioned LongBench codebooks under a name like:
-  - `/content/qwen3_8B/codebooks_64_128_64_longbench_held_out_balanced_kpp_noclip/{keys,values}/`
-- Codebook text files, head maps, cluster summaries.
+- Versioned LongBench-E codebooks under:
+  - `/content/qwen3_8B/codebooks_64_128_64_longbench_e_held_out_4096_balanced_kpp_noclip/{keys,values}/`
+- Codebook text files, head maps, cluster summaries, and calibration-derived `static_outlier_masks.json`.
 - Per-side `codebook_mse_report.json`.
 - Optional Drive copy.
 
@@ -259,7 +260,7 @@ Cells: lines 5022-7018
 
 What it does:
 - Installs missing evaluation dependencies.
-- Defines a standalone LongBench/LongBench-E evaluation flow for baseline, dynamic-outlier PQ, and static-mask PQ.
+- Defines a standalone full LongBench-E evaluation flow for baseline, dynamic-outlier PQ, and calibration-derived static-mask PQ.
 - Loads LongBench data directly from Parquet shards to avoid legacy dataset-script issues.
 - Generates answers with cache-aware greedy decoding.
 - Scores predictions with task-specific LongBench metrics.
@@ -288,7 +289,7 @@ Outputs:
 
 Dependencies:
 - Requires trained codebooks and model files.
-- Dynamic LongBench evaluation must run before static LongBench evaluation because static masks are learned from dynamic tracker observations.
+- Dynamic and static modes use matching 64-bank, 128-codeword key/value codebooks; static masks come from held-out calibration.
 - Generation uses model KV-cache support, so this section supersedes the simpler fixed-window perplexity evaluation for LongBench-style tasks.
 
 ## Section 10: Exploratory Outlier Tracking With Hugging Face Wrapper
