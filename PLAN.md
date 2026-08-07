@@ -249,10 +249,11 @@ cache, reconstruction report, and static masks.
 - Stage: Variant A source implementation locally verified; Colab extraction pending
 - Active command ID: none
 - Colab bridge: `G:\My Drive\PQ_agent`
-- Next action: commit and push the verified source changes, then submit Variant A
-  extraction with `PQ_CALIBRATION_VARIANT=clean_hotpot_a` through the bridge and
-  independently audit the generated manifest, arrays, role/source sidecars, and
-  Drive backup before training.
+- Last pushed implementation commit: `5891d0f`
+- Next action: submit Variant A extraction with
+  `PQ_CALIBRATION_VARIANT=clean_hotpot_a` through the bridge and independently
+  audit the generated manifest, arrays, role/source sidecars, and Drive backup
+  before training.
 
 ## Completion Criteria
 

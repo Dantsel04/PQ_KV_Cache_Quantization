@@ -21,6 +21,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   No Variant A GPU extraction/training/evaluation result exists yet.
 
 - Local source checkpoint on 2026-08-07:
+  - Commit pushed to `origin/main`: `5891d0f`
+    (`Implement clean calibration variants and adaptive PQ budgets`).
   - `py -m py_compile KV_Cache.py`: passed.
   - `py -m jupytext --sync KV_Cache.ipynb`: passed.
   - `git diff --check`: passed with only Git CRLF conversion warnings.
