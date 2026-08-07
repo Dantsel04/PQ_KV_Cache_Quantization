@@ -4,14 +4,15 @@
 
 The GPU pipeline is in progress. Environment/model setup, held-out calibration
 extraction, and key/value codebook training are verified. Full LongBench-E evaluation
-has not started.
+is being submitted under command
+`pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`.
 
 No NMSE or LongBench-E score is reported without a matching successful Colab bridge
 result.
 
 ## Verified Preparation
 
-- Published active-training revision: `12cef19`.
+- Published verified-training checkpoint: `22cb8d5`.
 - Colab GPU: NVIDIA L4 with CUDA available.
 - Qwen3-8B: downloaded successfully to `/content/qwen3_8B`.
 - Model evidence: setup command returned code 0 and confirmed `config.json`.

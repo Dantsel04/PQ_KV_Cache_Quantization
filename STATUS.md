@@ -8,7 +8,7 @@ This repository contains a Jupytext-managed Google Colab workflow for Qwen3-8B
 KV-cache product quantization. `KV_Cache.py` is the editable source and
 `KV_Cache.ipynb` is the synced Colab artifact.
 
-- Published active-training revision: `12cef19` on `main`.
+- Published verified-training checkpoint: `22cb8d5` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
 - `py -m jupytext --sync KV_Cache.ipynb`: passed.
 - Static configuration checks passed for held-out calibration, 4096-token
@@ -35,7 +35,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   `0.020132016182836856` (`0.0195675781971871` with 3 outliers).
 - Runtime compatibility passed during training, and the independent audit verified
   all 576 calibration-derived static masks with 3 unique dimensions per head.
-- LongBench-E evaluation has not started.
+- Full baseline/dynamic/static LongBench-E evaluation is being submitted under
+  command `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`.
 
 ## Colab Bridge Contract
 
@@ -98,8 +99,7 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 
 ## Next Steps for the Goal Chat
 
-1. Run the full baseline/dynamic/static LongBench-E evaluation now that training and
-   its artifact audit have both returned matching code 0.
+1. Monitor exact command `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`.
 2. Independently audit aggregate and per-dataset CSV outputs after evaluation.
 3. Update `PLAN.md`, this file, and `LONGBENCH_E_RESULTS.md` after each verified
    checkpoint; commit and push meaningful source/documentation changes.

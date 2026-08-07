@@ -35,16 +35,17 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 
 ## Active Command
 
-- Stage: full LongBench-E baseline/dynamic/static evaluation preparation
-- Prior command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
+- Stage: full LongBench-E baseline/dynamic/static evaluation
+- Active command ID: `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
+- Prior training command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
 - Verification command ID: `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a`
 - Bridge: `G:\My Drive\PQ_agent`
-- State: training and independent artifact audit returned matching code 0;
-  evaluation is the next gate and has not yet been submitted.
+- State: ready for submission; accept only a matching bridge result for the active
+  evaluation ID.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
-- Selection method: use the unique training-cell source marker because notebook cell
-  IDs are absent after Jupytext sync.
+- Selection method: use the unique standalone LongBench-cell source marker because
+  notebook cell IDs are absent after Jupytext sync.
 
 ## Verified Training Metrics
 
