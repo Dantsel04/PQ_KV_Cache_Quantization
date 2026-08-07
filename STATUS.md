@@ -49,6 +49,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   looked for `/content/qwen3_8B/pq_training_data/keys`. The marker has been moved to
   the LongBench-aware adaptive trainer and local `py_compile`, Jupytext sync, and
   `git diff --check` passed after the fix.
+- Variant A training retry
+  `pq-variant-a-train-retry-c48a885533d048b2b88127e274bab585` reached the correct
+  LongBench-aware trainer, validated the adaptive group budget rule, loaded Variant A
+  provenance, clustered key heads, and failed before k-means with
+  `NameError: Counter is not defined` in the new stratified group sampler. The
+  missing local import has been added to the trainer cell and local `py_compile`,
+  Jupytext sync, and `git diff --check` passed after the fix.
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.

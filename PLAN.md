@@ -246,13 +246,13 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A training retry submitted
-- Active command ID: `pq-variant-a-train-retry-c48a885533d048b2b88127e274bab585`
+- Stage: Variant A training import fixed; retry pending
+- Active command ID: none
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: wait for Variant A training retry, then independently audit head maps,
-  group budgets, codebook/LUT artifacts, static masks, and reconstruction reports
-  before evaluation.
+- Next action: retry Variant A training after the `Counter/defaultdict` import fix,
+  then independently audit head maps, group budgets, codebook/LUT artifacts, static
+  masks, and reconstruction reports before evaluation.
 
 ## Completion Criteria
 
