@@ -5033,8 +5033,15 @@ DIMS = 128
 PQ_CHUNK_SIZE = 64
 
 # LongBench v1 / LongBench-E evaluation.
-# TEST_MODE is a small end-to-end smoke test. Set it to False for the selected full datasets.
-TEST_MODE = False
+# Keep full evaluation as the default, while allowing a bridge command to request
+# the small end-to-end smoke test without editing and republishing the notebook.
+_test_mode_env = os.environ.get("PQ_LONGBENCH_TEST_MODE", "0").strip().lower()
+if _test_mode_env not in {"0", "1", "false", "true", "no", "yes", "off", "on"}:
+    raise ValueError(
+        "PQ_LONGBENCH_TEST_MODE must be one of "
+        "0/1, false/true, no/yes, or off/on"
+    )
+TEST_MODE = _test_mode_env in {"1", "true", "yes", "on"}
 USE_LONG_BENCH_E = True
 MAX_SAMPLES_PER_DATASET = 2 if TEST_MODE else None
 MAX_INPUT_TOKENS = 4096

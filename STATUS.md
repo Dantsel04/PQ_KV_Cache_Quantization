@@ -48,7 +48,12 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   `pq-longbench-data-preflight-57f3129627314f75b7791cc2bb5437a4` returned code 0:
   all 13 shards opened with the required standardized columns and 3,668 total
   LongBench-E samples. Evaluation retry
-  `pq-longbench-e-107ac5e62ab54a7c94c2c975c0838832` is ready for submission.
+  `pq-longbench-e-107ac5e62ab54a7c94c2c975c0838832` was submitted and remains
+  without a matching terminal bridge result. The user requested that this run be
+  manually interrupted in favor of a small diagnostic run.
+- LongBench smoke mode can now be selected per bridge command with
+  `PQ_LONGBENCH_TEST_MODE=1`; full evaluation remains the default. Smoke mode uses
+  three datasets, two samples per dataset, and a 64-token generation cap.
 
 ## Colab Bridge Contract
 
@@ -115,8 +120,11 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 
 ## Next Steps for the Goal Chat
 
-1. Monitor evaluation retry `pq-longbench-e-107ac5e62ab54a7c94c2c975c0838832`.
-2. Accept only its exact matching terminal bridge result.
-3. Independently audit aggregate and per-dataset CSV outputs after evaluation.
+1. Wait for confirmation that evaluation
+   `pq-longbench-e-107ac5e62ab54a7c94c2c975c0838832` was manually interrupted.
+2. Run the command-selectable LongBench smoke test under a new unique ID and audit
+   its diagnostic outputs. Do not report smoke scores as final benchmark results.
+3. Restore/run the full evaluation under a new unique ID, accept only its exact
+   matching terminal result, and independently audit all output artifacts.
 4. Update `PLAN.md`, this file, and `LONGBENCH_E_RESULTS.md` after each verified
    checkpoint; commit and push meaningful source/documentation changes.
