@@ -30,7 +30,7 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - [x] Train key and value 64 x 128 codebooks.
 - [x] Verify head maps, runtime compatibility, NMSE reports, and static masks.
 - [x] Run and inspect the requested small diagnostic LongBench smoke test.
-- [ ] Extract and audit exact LongBench-E contaminated calibration vectors.
+- [x] Extract and audit exact LongBench-E contaminated calibration vectors.
 - [ ] Train and audit separate contaminated 64 x 128 key/value codebooks.
 - [ ] Run and audit a smoke test using only the contaminated codebook directory.
 - [ ] Run the full LongBench-E baseline/dynamic/static suite.
@@ -39,18 +39,20 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 
 ## Active Command
 
-- Stage: contaminated LongBench-E calibration extraction
-- Active command ID: `pq-contaminated-extract-27437bd820e64c808c864b18b013a61c`
+- Stage: contaminated K/V codebook training
+- Active command ID: `pq-contaminated-train-cf73fe9e2f344b23a89d67df2d17db1c`
+- Verified contaminated extraction ID: `pq-contaminated-extract-27437bd820e64c808c864b18b013a61c`
+- Verified contaminated extraction audit ID: `pq-contaminated-extract-audit-4cd266491e374f89b102ecfd0541dca5`
 - Verified smoke execution ID: `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34`
 - Verified smoke audit ID: `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964`
 - Failed evaluation ID: `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
 - Prior training command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
 - Verification command ID: `pq-codebook-audit-b9dc71e5b20e484f8431c60d72daf61a`
 - Bridge: `G:\My Drive\PQ_agent`
-- State: full retry `pq-longbench-e-full-13d26f49dd214c84bf8f6b46d6f46d20`
-  returned matching code 130 after the user interrupted it at baseline qasper
-  64/224. The next experiment uses exact pinned LongBench-E documents in explicit
-  contaminated mode and keeps every generated artifact separate from held-out data.
+- State: contaminated extraction and its independent artifact audit returned
+  matching code 0. Exact pinned LongBench-E provenance, 800 documents, all 1,152
+  arrays, and the Drive backup are verified. Separate contaminated codebook training
+  is next.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
 - Selection method: use the unique standalone LongBench-cell source marker because

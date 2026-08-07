@@ -8,7 +8,7 @@ This repository contains a Jupytext-managed Google Colab workflow for Qwen3-8B
 KV-cache product quantization. `KV_Cache.py` is the editable source and
 `KV_Cache.ipynb` is the synced Colab artifact.
 
-- Published smoke-mode source checkpoint: `67c5657` on `main`.
+- Published contaminated-mode source checkpoint: `c536a36` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
 - `py -m jupytext --sync KV_Cache.ipynb`: passed.
 - Static configuration checks passed for held-out calibration, 4096-token
@@ -71,6 +71,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   selectable by environment variable and use separate mode-qualified directories.
   Contaminated extraction reads the exact pinned LongBench-E Parquet revision rather
   than the legacy task-name-matched `data.zip` corpus.
+- Contaminated extraction
+  `pq-contaminated-extract-27437bd820e64c808c864b18b013a61c` returned code 0.
+  Independent audit
+  `pq-contaminated-extract-audit-4cd266491e374f89b102ecfd0541dca5`
+  returned code 0 and verified exact pinned LongBench-E provenance, 800 unique
+  documents across all 13 tasks, a document-disjoint 720/80 split, 36,000/4,000
+  train/test vectors per head, all 1,152 arrays, and a matching Drive backup.
 
 ## Colab Bridge Contract
 
@@ -103,6 +110,8 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34` | Three-dataset LongBench smoke execution | 0 | Executed baseline, dynamic, then static evaluation for two samples on each of qasper, hotpotqa, and passage_retrieval_en. |
 | `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964` | Smoke artifact audit | 0 | Verified and reconciled 18 predictions, 9 summaries, 3 comparisons, and one aggregate row; scores are diagnostic only. |
 | `pq-longbench-e-full-13d26f49dd214c84bf8f6b46d6f46d20` | Full LongBench-E retry 3 | 130 | User interruption after 64/224 baseline qasper samples; no complete dataset or valid benchmark result. |
+| `pq-contaminated-extract-27437bd820e64c808c864b18b013a61c` | Contaminated calibration extraction | 0 | Extracted exact pinned LongBench-E documents: 800 documents, 36,000 train and 4,000 test vectors per layer/head. |
+| `pq-contaminated-extract-audit-4cd266491e374f89b102ecfd0541dca5` | Contaminated extraction audit | 0 | Verified provenance, all 13 tasks, document separation, 1,152 arrays, finite samples, and matching Drive backup. |
 
 ## Implemented LongBench-E Configuration
 
@@ -140,8 +149,6 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 
 ## Next Steps for the Goal Chat
 
-1. Extract exact LongBench-E contaminated calibration vectors into a separate
-   mode-qualified directory and independently audit provenance/artifacts.
-2. Train and audit separate contaminated 64-bank x 128-codeword K/V codebooks.
-3. Run and audit a contaminated-codebook smoke test. Keep its scores explicitly
+1. Train and audit separate contaminated 64-bank x 128-codeword K/V codebooks.
+2. Run and audit a contaminated-codebook smoke test. Keep its scores explicitly
    diagnostic and separate from reportable held-out results.
