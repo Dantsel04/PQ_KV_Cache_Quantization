@@ -35,9 +35,10 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 
 ## Active Command
 
-- Stage: codebook training preparation
-- Command ID: not yet submitted
+- Stage: 64-bank x 128-codeword key/value codebook training
+- Command ID: `pq-train-e80750afac6c45ac8a30322536a84957`
 - Bridge: `G:\My Drive\PQ_agent`
+- State: submitted; accept only the matching bridge result.
 - Prior gate: extraction and its artifact audit both returned matching code 0.
 - Selection method: use the unique training-cell source marker because notebook cell
   IDs are absent after Jupytext sync.

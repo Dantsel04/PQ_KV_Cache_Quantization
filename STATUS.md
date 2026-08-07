@@ -8,7 +8,7 @@ This repository contains a Jupytext-managed Google Colab workflow for Qwen3-8B
 KV-cache product quantization. `KV_Cache.py` is the editable source and
 `KV_Cache.ipynb` is the synced Colab artifact.
 
-- Published revision before this checkpoint update: `cb546d2` on `main`.
+- Published extraction-checkpoint revision: `b295732` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
 - `py -m jupytext --sync KV_Cache.ipynb`: passed.
 - Static configuration checks passed for held-out calibration, 4096-token
@@ -23,7 +23,9 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 - Artifact audit `pq-extract-verify-63a78449724942d9ba3d822e7b2976d8`
   returned code 0: held-out provenance, 4096-token alignment, zero task overlap,
   and all 1,152 key/value train/test arrays were verified.
-- Codebook training is the next stage; LongBench-E evaluation has not started.
+- Codebook training is active under command
+  `pq-train-e80750afac6c45ac8a30322536a84957`; LongBench-E evaluation has not
+  started.
 
 ## Colab Bridge Contract
 
