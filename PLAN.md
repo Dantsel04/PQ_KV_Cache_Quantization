@@ -36,8 +36,8 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 
 ## Active Command
 
-- Stage: prepare a fresh full LongBench-E baseline/dynamic/static evaluation retry
-- Active command ID: none; the next full run must use a new unique ID
+- Stage: full LongBench-E baseline/dynamic/static evaluation retry
+- Active command ID: `pq-longbench-e-full-13d26f49dd214c84bf8f6b46d6f46d20`
 - Verified smoke execution ID: `pq-longbench-smoke-afb2f5e22e5746cc89f04a7d4f92fe34`
 - Verified smoke audit ID: `pq-longbench-smoke-audit-1dd591c21e7e4c1b94acdc47c7849964`
 - Failed evaluation ID: `pq-longbench-e-9bd412b7687c4b57ac97be1498e56daf`
@@ -46,8 +46,8 @@ Never claim a GPU stage succeeded without the matching `result.json`.
 - Bridge: `G:\My Drive\PQ_agent`
 - State: the command-selectable smoke test and its independent artifact audit both
   returned matching code 0. All 18 predictions and their CSV summaries reconciled.
-  The full 13-dataset evaluation is next and its outputs must replace the smoke
-  artifacts before final reporting.
+  A clean full 13-dataset retry is being launched with direct cell execution so
+  notebook stdout and progress bars stream through the controller.
 - Prior gates: extraction, training, and their artifact audits returned matching
   code 0.
 - Selection method: use the unique standalone LongBench-cell source marker because
