@@ -247,7 +247,7 @@ cache, reconstruction report, and static masks.
 ## Active Command
 
 - Stage: Variant A extraction submitted
-- Active command ID: `pq-variant-a-extract-8fdf2e2943464797bda30b7bb1397f0c`
+- Active command ID: `pq-variant-a-extract-e2b7effc1ef54fef8a34ad007614e059`
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
 - Next action: wait for the matching bridge result, then independently audit the
