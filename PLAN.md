@@ -246,11 +246,13 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A extraction audited; training pending
-- Active command ID: none
+- Stage: Variant A training submitted
+- Active command ID: `pq-variant-a-train-fef2a8857b8d4c72ae2a97c554a526ec`
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: train Variant A key/value codebooks with adaptive group budgets.
+- Next action: wait for Variant A training result, then independently audit head
+  maps, group budgets, codebook/LUT artifacts, static masks, and reconstruction
+  reports before evaluation.
 
 ## Completion Criteria
 
