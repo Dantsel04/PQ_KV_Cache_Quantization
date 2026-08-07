@@ -43,6 +43,12 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   test sidecar rows, all five position roles in train/test, all 1,152 key/value
   Train/Test arrays, finite sampled vectors, matching Drive backup files, and zero
   exact source-ID overlap with the pinned LongBench-E evaluation revision.
+- Variant A training attempt
+  `pq-variant-a-train-fef2a8857b8d4c72ae2a97c554a526ec` returned code 1 before
+  training codebooks. The bridge marker selected the legacy WikiText trainer, which
+  looked for `/content/qwen3_8B/pq_training_data/keys`. The marker has been moved to
+  the LongBench-aware adaptive trainer and local `py_compile`, Jupytext sync, and
+  `git diff --check` passed after the fix.
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.

@@ -2262,7 +2262,6 @@ from collections import Counter, defaultdict
 
 # ============================================================
 # Configurable Parameters
-# PQ_BRIDGE_CELL_MARKER: longbench_adaptive_codebook_training
 # ============================================================
 
 MODEL_NAME = "qwen3_8B"
@@ -3118,6 +3117,7 @@ from tqdm import tqdm
 
 # ============================================================
 # Configurable Parameters
+# PQ_BRIDGE_CELL_MARKER: longbench_adaptive_codebook_training
 # ============================================================
 
 MODEL_NAME = "qwen3_8B"

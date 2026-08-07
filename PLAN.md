@@ -246,12 +246,13 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A training submitted
-- Active command ID: `pq-variant-a-train-fef2a8857b8d4c72ae2a97c554a526ec`
+- Stage: Variant A training marker fixed; retry pending
+- Active command ID: none
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: wait for Variant A training result, then independently audit head
-  maps, group budgets, codebook/LUT artifacts, static masks, and reconstruction
+- Next action: retry Variant A training with the corrected
+  `longbench_adaptive_codebook_training` bridge marker, then independently audit
+  head maps, group budgets, codebook/LUT artifacts, static masks, and reconstruction
   reports before evaluation.
 
 ## Completion Criteria
