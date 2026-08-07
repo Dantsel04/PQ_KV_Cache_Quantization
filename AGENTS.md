@@ -28,6 +28,24 @@ There are no package source directories, test directories, or requirements files
 7. Never assume a GPU run succeeded unless the Colab result explicitly confirms it.
 8. Update `STATUS.md` and `PLAN.md` after meaningful project changes.
 
+## Colab Bridge
+
+- Local Google Drive bridge: `G:\My Drive\PQ_agent`.
+- Do not use browser automation for Colab.
+- Write commands atomically to `command.json` with schema:
+  `{"id": "<unique-id>", "command": ["program", "arg1", "..."]}`.
+- The controller writes `result.json` with `id`, `returncode`, `stdout`, and
+  `stderr`.
+- Ignore every result whose `id` does not exactly match the active command.
+- Use a hidden local polling process to watch `result.json`; polling must not consume
+  agent turns. A normal watcher cannot wake a non-goal Codex chat, so use `/goal` for
+  autonomous multi-stage runs.
+- Run the pipeline behind explicit gates: model setup, calibration extraction,
+  codebook training, then LongBench-E evaluation. Never submit a later stage until
+  the matching prior result returns code 0 and its expected artifacts are verified.
+- The synced notebook currently has no reliable cell IDs. Select pipeline cells by a
+  unique source marker, not by Jupytext/Colab cell ID.
+
 Do not create per-chat markdown logs. Use Git history for detailed change tracking, `STATUS.md` for current state, and `PLAN.md` for next steps.
 
 ## Build, Run, and Test Commands
