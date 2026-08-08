@@ -246,13 +246,13 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A clean Hotpot validation audited; held-out comparison pending
-- Active command ID: none
+- Stage: Held-out codebook Hotpot comparison submitted
+- Active command ID: `pq-heldout-hotpot-compare-1f4f69c34a844267bd2e346facb2c60e`
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: compare the original held-out codebooks against Variant A on the same
-  locked Hotpot sample IDs and prompts before deciding whether Variant A failed
-  materially enough to trigger the stop rule.
+- Next action: wait for the held-out codebook comparison on the same locked Hotpot
+  sample IDs and prompts before deciding whether Variant A failed materially enough
+  to trigger the stop rule.
 
 ## Completion Criteria
 
