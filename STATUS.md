@@ -56,6 +56,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   `NameError: Counter is not defined` in the new stratified group sampler. The
   missing local import has been added to the trainer cell and local `py_compile`,
   Jupytext sync, and `git diff --check` passed after the fix.
+- Variant A training retry 2
+  `pq-variant-a-train-retry2-9643da62ccd74903b9dae061a0e08b13` returned code 0.
+  It checked out commit `fa03b06`, validated the clean Variant A manifest and the
+  adaptive group budget rule, trained key and value codebooks under
+  `/content/qwen3_8B/codebooks_64_128_64_longbench_e_clean_hotpot_a_4096_adaptive10k`,
+  produced calibration-static masks, and copied the codebook tree to Drive.
+  Independent codebook audit is pending before any evaluation.
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.

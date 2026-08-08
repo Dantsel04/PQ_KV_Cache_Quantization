@@ -174,7 +174,7 @@ cluster, not just by prompt row.
 - [x] Extract Variant A calibration vectors through the Colab bridge.
 - [x] Audit all expected arrays, source/role quotas, deduplication report, and Drive
   backup before training.
-- [ ] Train Variant A key/value codebooks using adaptive group budgets.
+- [x] Train Variant A key/value codebooks using adaptive group budgets.
 - [ ] Audit every head map, group budget, codebook/LUT artifact, static mask, and
   role-specific reconstruction report.
 - [ ] Run key-only, value-only, and combined-PQ validation on a locked set of unused,
@@ -246,13 +246,12 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A training retry submitted
-- Active command ID: `pq-variant-a-train-retry2-9643da62ccd74903b9dae061a0e08b13`
+- Stage: Variant A training returned code 0; codebook audit pending
+- Active command ID: none
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: wait for Variant A training retry, then independently audit head maps,
-  group budgets, codebook/LUT artifacts, static masks, and reconstruction reports
-  before evaluation.
+- Next action: independently audit head maps, group budgets, codebook/LUT artifacts,
+  static masks, and reconstruction reports before evaluation.
 
 ## Completion Criteria
 
