@@ -84,6 +84,18 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   hit CUDA OOM while moving it to the L4. No validation score was produced; retry
   must set the default dtype to `torch.bfloat16` before model construction, matching
   the notebook's evaluation main.
+- Clean Hotpot validation retry 2
+  `pq-variant-a-hotpot-val-retry2-14942209f11045108b3a43c706602589` returned code 0.
+  Independent audit `pq-variant-a-hotpot-val-audit-5195c46a1b5d41abbd45a31b61c4e36b`
+  also returned code 0 and verified 100 locked clean decontaminated HotpotQA
+  training-split examples, matching prediction IDs across modes, summary consistency,
+  and Drive backup. Verified F1-style scores were baseline `76.59870129870131`,
+  key-only dynamic `71.02727272727273`, value-only dynamic `77.77468169085817`,
+  and combined dynamic `70.86735466116272`. Combined dynamic retained
+  `0.9251769737558754` of baseline but was `5.731346637538593` points below
+  baseline, missing the five-point Variant A gate. Value-only improved by
+  `1.175980392156859`, while key-only dropped by `5.571428571428584`, identifying
+  key quantization as the immediate limiting factor on this locked set.
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.

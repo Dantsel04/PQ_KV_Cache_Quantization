@@ -177,7 +177,7 @@ cluster, not just by prompt row.
 - [x] Train Variant A key/value codebooks using adaptive group budgets.
 - [x] Audit every head map, group budget, codebook/LUT artifact, static mask, and
   role-specific reconstruction report.
-- [ ] Run key-only, value-only, and combined-PQ validation on a locked set of unused,
+- [x] Run key-only, value-only, and combined-PQ validation on a locked set of unused,
   decontaminated HotpotQA-training examples.
 - [ ] Compare against the original held-out codebooks using identical sample IDs and
   prompts.
@@ -246,12 +246,13 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A clean Hotpot validation retry submitted
-- Active command ID: `pq-variant-a-hotpot-val-retry2-14942209f11045108b3a43c706602589`
+- Stage: Variant A clean Hotpot validation audited; held-out comparison pending
+- Active command ID: none
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: wait for clean Hotpot validation retry, audit predictions and locked
-  sample IDs, then compare against gates before any broader evaluation.
+- Next action: compare the original held-out codebooks against Variant A on the same
+  locked Hotpot sample IDs and prompts before deciding whether Variant A failed
+  materially enough to trigger the stop rule.
 
 ## Completion Criteria
 
