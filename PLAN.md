@@ -179,7 +179,7 @@ cluster, not just by prompt row.
   role-specific reconstruction report.
 - [x] Run key-only, value-only, and combined-PQ validation on a locked set of unused,
   decontaminated HotpotQA-training examples.
-- [ ] Compare against the original held-out codebooks using identical sample IDs and
+- [x] Compare against the original held-out codebooks using identical sample IDs and
   prompts.
 
 ### Phase 6 — Variant A decision gate
@@ -193,6 +193,18 @@ cluster, not just by prompt row.
 - [ ] Repeat the promising configuration across at least three calibration seeds.
 - [ ] If Variant A does not improve materially, stop expanding data and investigate
   selective precision or lower compression instead of proceeding blindly to B.
+
+Seed-0 gate status: Variant A combined PQ scored `70.86735466116272` versus
+baseline `76.59870129870131`, retaining `0.9251769737558754` of baseline but
+missing the five-point-drop gate by `0.731346637538593` points. It materially
+improved over the original held-out codebooks on identical prompts by
+`+6.71783751164557` combined dynamic, `+4.162215740018937` key-only, and
+`+2.4093137254901933` value-only. The limiting factor is key-side PQ: value-only
+Variant A beat baseline, while key-only remained `5.571428571428584` points below
+baseline. Do not advance to Variant B or a full LongBench-E run from this seed-0
+result alone; next investigate key-selective precision, lower key compression, or
+role-specific key handling before spending more GPU time on broader corpus
+expansion.
 
 ### Phase 7 — Variant B extraction, training, and suite validation
 
@@ -246,13 +258,13 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Held-out codebook Hotpot comparison submitted
-- Active command ID: `pq-heldout-hotpot-compare-1f4f69c34a844267bd2e346facb2c60e`
+- Stage: Variant A seed-0 Hotpot gate diagnosed
+- Active command ID: none
 - Colab bridge: `G:\My Drive\PQ_agent`
-- Last pushed implementation commit: `5891d0f`
-- Next action: wait for the held-out codebook comparison on the same locked Hotpot
-  sample IDs and prompts before deciding whether Variant A failed materially enough
-  to trigger the stop rule.
+- Last pushed implementation commit: `7c992ee`
+- Next action: decide whether to prototype a key-side precision/compression fix for
+  Variant A before running more calibration seeds. The seed-0 result is promising
+  relative to held-out codebooks but fails the five-point advancement gate.
 
 ## Completion Criteria
 

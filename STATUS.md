@@ -18,7 +18,9 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   Variant A/B configuration, Variant A source loading, decontamination, role-aware
   extraction sidecars, adaptive group training budgets, and Variant A evaluation
   path selection is implemented in `KV_Cache.py` and synced to `KV_Cache.ipynb`.
-  No Variant A GPU extraction/training/evaluation result exists yet.
+  Variant A extraction, training, artifact audits, clean locked Hotpot validation,
+  and held-out-codebook comparison are complete for the first calibration seed.
+  Variant B has not been extracted, trained, or evaluated.
 
 - Local source checkpoint on 2026-08-07:
   - Commit pushed to `origin/main`: `5891d0f`
@@ -96,6 +98,22 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   baseline, missing the five-point Variant A gate. Value-only improved by
   `1.175980392156859`, while key-only dropped by `5.571428571428584`, identifying
   key quantization as the immediate limiting factor on this locked set.
+- Held-out Hotpot comparison
+  `pq-heldout-hotpot-compare-1f4f69c34a844267bd2e346facb2c60e` returned code 0
+  on the same 100 locked HotpotQA IDs and prompts using the original held-out
+  codebooks. Independent audit
+  `pq-heldout-hotpot-audit2-b7dd988a54984d298d607990a5004c17` returned code 0
+  after an initial audit-script schema correction. It verified matching locked IDs,
+  100 prediction records for each mode, summary recomputation, per-answer-type
+  consistency, and Drive backup. Verified held-out-codebook scores were baseline
+  `76.59870129870131`, key-only dynamic `66.8650569872538`,
+  value-only dynamic `75.36536796536798`, and combined dynamic
+  `64.14951714951715`. Variant A minus held-out on identical prompts was `0.0`
+  baseline, `+4.162215740018937` key-only, `+2.4093137254901933` value-only,
+  and `+6.71783751164557` combined dynamic. Variant A is therefore materially
+  better than the original held-out codebooks on this locked Hotpot diagnostic,
+  but it still does not advance because combined PQ remains `5.731346637538593`
+  points below the uncompressed baseline on seed 0.
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
