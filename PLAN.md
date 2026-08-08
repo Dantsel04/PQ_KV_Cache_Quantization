@@ -246,12 +246,12 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A codebooks audited; clean Hotpot validation pending
-- Active command ID: none
+- Stage: Variant A clean Hotpot validation submitted
+- Active command ID: `pq-variant-a-hotpot-val-a607914f1e3a43818c33374334b143dc`
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: run baseline, key-only, value-only, and combined-PQ evaluation on a
-  locked clean decontaminated HotpotQA training-split validation set.
+- Next action: wait for clean Hotpot validation result, audit the predictions and
+  locked sample IDs, then compare against gates before any broader evaluation.
 
 ## Completion Criteria
 
