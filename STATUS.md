@@ -70,6 +70,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   counts preserved into trainer sampling. Reconstruction NMSE was keys
   `0.0035121105743023766` (`0.003212381993457284` with 3 outliers) and values
   `0.019508355385729165` (`0.018970648296492462` with 3 outliers).
+- Clean Hotpot validation attempt
+  `pq-variant-a-hotpot-val-a607914f1e3a43818c33374334b143dc` returned code `-9`
+  before any prediction records were produced. It selected 100 clean locked HotpotQA
+  training-split examples, then was killed after loading key/value PQ processors,
+  likely due to memory pressure from materializing too much HotpotQA source data
+  before model loading. No validation score was produced; retry with memory-efficient
+  selection is required.
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
