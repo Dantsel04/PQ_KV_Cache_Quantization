@@ -62,7 +62,14 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   adaptive group budget rule, trained key and value codebooks under
   `/content/qwen3_8B/codebooks_64_128_64_longbench_e_clean_hotpot_a_4096_adaptive10k`,
   produced calibration-static masks, and copied the codebook tree to Drive.
-  Independent codebook audit is pending before any evaluation.
+- Variant A codebook audit
+  `pq-variant-a-codebook-audit-f3fe3e90c0364cd998a23d4039efe422` returned code 0.
+  It verified both key/value sides: 64 groups, 288 mapped heads, 4,096 fine,
+  4,096 coarse, and 4,096 LUT files per side, complete Drive backup, 576 static
+  masks, adaptive group budgets with zero shortfalls/duplication, and role/source
+  counts preserved into trainer sampling. Reconstruction NMSE was keys
+  `0.0035121105743023766` (`0.003212381993457284` with 3 outliers) and values
+  `0.019508355385729165` (`0.018970648296492462` with 3 outliers).
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.

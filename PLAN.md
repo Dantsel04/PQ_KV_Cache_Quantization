@@ -175,7 +175,7 @@ cluster, not just by prompt row.
 - [x] Audit all expected arrays, source/role quotas, deduplication report, and Drive
   backup before training.
 - [x] Train Variant A key/value codebooks using adaptive group budgets.
-- [ ] Audit every head map, group budget, codebook/LUT artifact, static mask, and
+- [x] Audit every head map, group budget, codebook/LUT artifact, static mask, and
   role-specific reconstruction report.
 - [ ] Run key-only, value-only, and combined-PQ validation on a locked set of unused,
   decontaminated HotpotQA-training examples.
@@ -246,12 +246,12 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A training returned code 0; codebook audit pending
+- Stage: Variant A codebooks audited; clean Hotpot validation pending
 - Active command ID: none
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: independently audit head maps, group budgets, codebook/LUT artifacts,
-  static masks, and reconstruction reports before evaluation.
+- Next action: run baseline, key-only, value-only, and combined-PQ evaluation on a
+  locked clean decontaminated HotpotQA training-split validation set.
 
 ## Completion Criteria
 
