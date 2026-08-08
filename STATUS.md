@@ -77,6 +77,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   likely due to memory pressure from materializing too much HotpotQA source data
   before model loading. No validation score was produced; retry with memory-efficient
   selection is required.
+- Clean Hotpot validation retry
+  `pq-variant-a-hotpot-val-retry-d3d8e6e030804907a4fa71c6e6ea9550` selected 100
+  clean locked HotpotQA training-split examples but returned code 1 before
+  prediction because the custom validation script constructed the model in fp32 and
+  hit CUDA OOM while moving it to the L4. No validation score was produced; retry
+  must set the default dtype to `torch.bfloat16` before model construction, matching
+  the notebook's evaluation main.
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
