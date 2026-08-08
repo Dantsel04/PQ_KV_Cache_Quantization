@@ -246,13 +246,12 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A clean Hotpot validation dtype retry pending
-- Active command ID: none
+- Stage: Variant A clean Hotpot validation retry submitted
+- Active command ID: `pq-variant-a-hotpot-val-retry2-14942209f11045108b3a43c706602589`
 - Colab bridge: `G:\My Drive\PQ_agent`
 - Last pushed implementation commit: `5891d0f`
-- Next action: retry clean Hotpot validation with bf16 model construction, audit
-  predictions and locked sample IDs, then compare against gates before any broader
-  evaluation.
+- Next action: wait for clean Hotpot validation retry, audit predictions and locked
+  sample IDs, then compare against gates before any broader evaluation.
 
 ## Completion Criteria
 
