@@ -6344,6 +6344,8 @@ import warnings
 import time
 import re
 import string
+import random
+import hashlib
 from collections import Counter
 
 import numpy as np
@@ -6390,15 +6392,91 @@ if _test_samples_per_dataset < 1:
     raise ValueError(
         "PQ_LONGBENCH_TEST_SAMPLES_PER_DATASET must be a positive integer"
     )
-MAX_SAMPLES_PER_DATASET = _test_samples_per_dataset if TEST_MODE else None
+_max_samples_env = os.environ.get(
+    "PQ_LONGBENCH_MAX_SAMPLES_PER_DATASET", ""
+).strip()
+if _max_samples_env:
+    try:
+        MAX_SAMPLES_PER_DATASET = int(_max_samples_env)
+    except ValueError as exc:
+        raise ValueError(
+            "PQ_LONGBENCH_MAX_SAMPLES_PER_DATASET must be a positive integer"
+        ) from exc
+    if MAX_SAMPLES_PER_DATASET < 1:
+        raise ValueError(
+            "PQ_LONGBENCH_MAX_SAMPLES_PER_DATASET must be a positive integer"
+        )
+else:
+    MAX_SAMPLES_PER_DATASET = _test_samples_per_dataset if TEST_MODE else None
+
+_sample_selection_default = (
+    "first" if TEST_MODE and not _max_samples_env else
+    "random" if MAX_SAMPLES_PER_DATASET is not None else
+    "all"
+)
+SAMPLE_SELECTION = os.environ.get(
+    "PQ_LONGBENCH_SAMPLE_SELECTION", _sample_selection_default
+).strip().lower()
+if SAMPLE_SELECTION not in {"all", "first", "random"}:
+    raise ValueError(
+        "PQ_LONGBENCH_SAMPLE_SELECTION must be all, first, or random"
+    )
+if SAMPLE_SELECTION == "all" and MAX_SAMPLES_PER_DATASET is not None:
+    raise ValueError(
+        "PQ_LONGBENCH_SAMPLE_SELECTION=all cannot be combined with a sample cap"
+    )
+if SAMPLE_SELECTION in {"first", "random"} and MAX_SAMPLES_PER_DATASET is None:
+    raise ValueError(
+        f"PQ_LONGBENCH_SAMPLE_SELECTION={SAMPLE_SELECTION} requires "
+        "PQ_LONGBENCH_MAX_SAMPLES_PER_DATASET or test mode"
+    )
+_sample_seed_env = os.environ.get("PQ_LONGBENCH_SAMPLE_SEED", "0").strip()
+try:
+    SAMPLE_SELECTION_SEED = int(_sample_seed_env)
+except ValueError as exc:
+    raise ValueError("PQ_LONGBENCH_SAMPLE_SEED must be an integer") from exc
+
 MAX_INPUT_TOKENS = 4096
-MAX_NEW_TOKENS_CAP = 64 if TEST_MODE else None
+_max_new_tokens_env = os.environ.get("PQ_LONGBENCH_MAX_NEW_TOKENS", "").strip()
+if _max_new_tokens_env:
+    try:
+        MAX_NEW_TOKENS_CAP = int(_max_new_tokens_env)
+    except ValueError as exc:
+        raise ValueError(
+            "PQ_LONGBENCH_MAX_NEW_TOKENS must be a positive integer"
+        ) from exc
+    if MAX_NEW_TOKENS_CAP < 1:
+        raise ValueError("PQ_LONGBENCH_MAX_NEW_TOKENS must be a positive integer")
+else:
+    MAX_NEW_TOKENS_CAP = 64 if TEST_MODE else None
 USE_CHAT_TEMPLATE = True
 DISABLE_QWEN_THINKING = True
 TRACK_TOKEN_LEVEL_OUTLIERS = False
 RUN_KEY_VALUE_SIDE_DIAGNOSTICS = os.environ.get(
     "PQ_LONGBENCH_SIDE_DIAGNOSTICS", "0"
 ).strip().lower() in {"1", "true", "yes", "on"}
+_eval_modes_env = os.environ.get(
+    "PQ_LONGBENCH_EVAL_MODES", "baseline,dynamic,static"
+).strip()
+EVAL_MODES = tuple(
+    mode.strip().lower()
+    for mode in _eval_modes_env.split(",")
+    if mode.strip()
+)
+_allowed_eval_modes = {"baseline", "dynamic", "static"}
+if not EVAL_MODES or any(mode not in _allowed_eval_modes for mode in EVAL_MODES):
+    raise ValueError(
+        "PQ_LONGBENCH_EVAL_MODES must be a comma-separated subset of "
+        "baseline,dynamic,static"
+    )
+if len(set(EVAL_MODES)) != len(EVAL_MODES):
+    raise ValueError("PQ_LONGBENCH_EVAL_MODES contains duplicate modes")
+if "dynamic" in EVAL_MODES and "baseline" not in EVAL_MODES:
+    raise ValueError("Dynamic LongBench-E evaluation requires baseline mode")
+if "static" in EVAL_MODES and "dynamic" not in EVAL_MODES:
+    raise ValueError("Static LongBench-E evaluation requires dynamic mode first")
+EVAL_MODES = tuple(mode for mode in ("baseline", "dynamic", "static") if mode in EVAL_MODES)
+REQUIRED_GPU_NAME = os.environ.get("PQ_REQUIRED_GPU_NAME", "").strip()
 
 LONG_BENCH_REPOS = ["zai-org/LongBench", "THUDM/LongBench"]
 # Pin the converted Parquet tree. The repository's current main branch can point
@@ -6523,6 +6601,23 @@ if EVAL_CALIBRATION_VARIANT != "prior_held_out":
     EXPERIMENT_NAME += f"__{EVAL_CALIBRATION_VARIANT}"
 if _run_tag:
     EXPERIMENT_NAME += f"__{_run_tag}"
+
+
+def validate_required_gpu():
+    if not REQUIRED_GPU_NAME:
+        return torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            f"Required GPU {REQUIRED_GPU_NAME!r}, but CUDA is not available"
+        )
+    gpu_name = torch.cuda.get_device_name(0)
+    if REQUIRED_GPU_NAME.lower() not in gpu_name.lower():
+        raise RuntimeError(
+            f"Required GPU containing {REQUIRED_GPU_NAME!r}, but runtime has "
+            f"{gpu_name!r}. Stop before LongBench-E evaluation."
+        )
+    print(f"Required GPU confirmed: {gpu_name}")
+    return gpu_name
 
 
 # ============================================================
@@ -8004,6 +8099,24 @@ def _download_longbench_parquet_paths(repo, config_name):
     ]
 
 
+def _stable_dataset_seed(config_name):
+    material = f"{SAMPLE_SELECTION_SEED}:{LONG_BENCH_REVISION}:{config_name}"
+    digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
+    return int(digest[:16], 16)
+
+
+def select_longbench_indices(config_name, total_rows):
+    if SAMPLE_SELECTION == "all":
+        return list(range(total_rows))
+
+    sample_count = min(MAX_SAMPLES_PER_DATASET, total_rows)
+    if SAMPLE_SELECTION == "first":
+        return list(range(sample_count))
+
+    rng = random.Random(_stable_dataset_seed(config_name))
+    return sorted(rng.sample(range(total_rows), sample_count))
+
+
 def load_longbench_examples(dataset):
     from datasets import load_dataset
 
@@ -8023,14 +8136,26 @@ def load_longbench_examples(dataset):
                 split="test",
             )
 
-            if MAX_SAMPLES_PER_DATASET is not None:
-                ds = ds.select(range(min(MAX_SAMPLES_PER_DATASET, len(ds))))
+            total_rows = len(ds)
+            selected_indices = select_longbench_indices(config_name, total_rows)
+            ds = ds.select(selected_indices)
 
             source = (
                 f"{repo}@{LONG_BENCH_REVISION}/{config_name} "
                 f"({len(parquet_paths)} locally cached parquet shard(s))"
             )
-            return [dict(x) for x in ds], source, config_name
+            rows = []
+            for selected_position, (source_index, row) in enumerate(
+                zip(selected_indices, ds)
+            ):
+                item = dict(row)
+                item["_longbench_source_index"] = int(source_index)
+                item["_longbench_selected_position"] = int(selected_position)
+                item["_longbench_source_rows"] = int(total_rows)
+                item["_longbench_selection_method"] = SAMPLE_SELECTION
+                item["_longbench_selection_seed"] = int(SAMPLE_SELECTION_SEED)
+                rows.append(item)
+            return rows, source, config_name
 
         except Exception as exc:
             errors.append(f"{repo}: {type(exc).__name__}: {exc}")
@@ -8047,15 +8172,72 @@ def preload_longbench_data():
     rows = []
     for dataset in LONG_BENCH_DATASETS:
         examples, repo, config_name = load_longbench_examples(dataset)
+        selected_indices = [
+            int(example["_longbench_source_index"])
+            for example in examples
+        ]
+        source_rows = (
+            int(examples[0]["_longbench_source_rows"])
+            if examples else 0
+        )
         loaded[dataset] = examples
         rows.append({
             "dataset": dataset,
             "config": config_name,
             "samples": len(examples),
+            "source_samples": source_rows,
+            "selection": SAMPLE_SELECTION,
+            "selection_seed": SAMPLE_SELECTION_SEED,
+            "selected_indices_preview": selected_indices[:10],
             "repository": repo,
         })
     print_df("Loaded LongBench datasets", pd.DataFrame(rows), index=False)
     return loaded
+
+
+def write_sample_selection_manifest(data_by_dataset):
+    manifest_path = os.path.join(OUTPUT_DIR, "sample_selection_manifest.json")
+    datasets = {}
+    for dataset, examples in data_by_dataset.items():
+        source_rows = (
+            int(examples[0]["_longbench_source_rows"])
+            if examples else 0
+        )
+        datasets[dataset] = {
+            "samples": len(examples),
+            "source_samples": source_rows,
+            "selected_source_indices": [
+                int(example["_longbench_source_index"])
+                for example in examples
+            ],
+            "selected_ids": [
+                example.get("_id")
+                for example in examples
+            ],
+        }
+
+    payload = {
+        "experiment": EXPERIMENT_NAME,
+        "run_tag": _run_tag,
+        "output_dir": OUTPUT_DIR,
+        "use_longbench_e": USE_LONG_BENCH_E,
+        "longbench_revision": LONG_BENCH_REVISION,
+        "longbench_loader": LONG_BENCH_LOADER_VERSION,
+        "datasets": list(LONG_BENCH_DATASETS),
+        "max_samples_per_dataset": MAX_SAMPLES_PER_DATASET,
+        "sample_selection": SAMPLE_SELECTION,
+        "sample_selection_seed": SAMPLE_SELECTION_SEED,
+        "max_input_tokens": MAX_INPUT_TOKENS,
+        "max_new_tokens_cap": MAX_NEW_TOKENS_CAP,
+        "eval_modes": list(EVAL_MODES),
+        "calibration_mode": EVAL_CALIBRATION_MODE,
+        "calibration_variant": EVAL_CALIBRATION_VARIANT,
+        "codebook_dir": LONGBENCH_E_CODEBOOK_DIR,
+        "datasets_loaded": datasets,
+    }
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    return manifest_path
 
 
 def save_jsonl(path, rows):
@@ -8101,6 +8283,16 @@ def evaluate_longbench_mode(eval_model, tokenizer, data_by_dataset, mode_name):
                 "dataset": dataset,
                 "sample_index": sample_idx,
                 "_id": example.get("_id"),
+                "source_index": example.get("_longbench_source_index"),
+                "selected_position": example.get("_longbench_selected_position"),
+                "source_rows": example.get("_longbench_source_rows"),
+                "sample_selection": example.get("_longbench_selection_method"),
+                "sample_selection_seed": example.get("_longbench_selection_seed"),
+                "run_tag": _run_tag,
+                "calibration_mode": EVAL_CALIBRATION_MODE,
+                "calibration_variant": EVAL_CALIBRATION_VARIANT,
+                "codebook_dir": LONGBENCH_E_CODEBOOK_DIR,
+                "max_new_tokens": max_new,
                 "prediction": prediction,
                 "answers": answers,
                 "all_classes": all_classes,
@@ -8156,19 +8348,33 @@ def comparison_rows(summary_by_mode):
         for row in rows_
     }
     for dataset in datasets:
-        baseline = lookup[("baseline", dataset)]["score"]
-        dynamic = lookup[("dynamic", dataset)]["score"]
-        static = lookup[("static", dataset)]["score"]
-        rows.append({
+        row = {
             "experiment": EXPERIMENT_NAME,
             "dataset": dataset,
-            "baseline_score": baseline,
-            "dynamic_pq_score": dynamic,
-            "static_top3_pq_score": static,
-            "dynamic_minus_baseline": dynamic - baseline,
-            "static_minus_baseline": static - baseline,
-            "static_minus_dynamic": static - dynamic,
-        })
+        }
+        baseline_row = lookup.get(("baseline", dataset))
+        dynamic_row = lookup.get(("dynamic", dataset))
+        static_row = lookup.get(("static", dataset))
+
+        if baseline_row is not None:
+            row["baseline_score"] = baseline_row["score"]
+        if dynamic_row is not None:
+            row["dynamic_pq_score"] = dynamic_row["score"]
+            if baseline_row is not None:
+                row["dynamic_minus_baseline"] = (
+                    dynamic_row["score"] - baseline_row["score"]
+                )
+        if static_row is not None:
+            row["static_top3_pq_score"] = static_row["score"]
+            if baseline_row is not None:
+                row["static_minus_baseline"] = (
+                    static_row["score"] - baseline_row["score"]
+                )
+            if dynamic_row is not None:
+                row["static_minus_dynamic"] = (
+                    static_row["score"] - dynamic_row["score"]
+                )
+        rows.append(row)
     return rows
 
 
@@ -8251,6 +8457,7 @@ if __name__ == "__main__":
 
     banner("LongBench Baseline vs Dynamic/Static KV-Cache PQ")
     device = get_device()
+    gpu_name = validate_required_gpu()
     cleanup_cuda()
     torch.set_default_dtype(torch.bfloat16)
     validate_single_config()
@@ -8265,13 +8472,18 @@ if __name__ == "__main__":
             ("experiment", EXPERIMENT_NAME),
             ("model_dir", MODEL_DIR),
             ("device", device),
+            ("gpu", gpu_name),
+            ("required gpu", REQUIRED_GPU_NAME or "<none>"),
             ("test_mode", TEST_MODE),
+            ("eval modes", EVAL_MODES),
             ("calibration mode", EVAL_CALIBRATION_MODE),
             ("longbench_e", USE_LONG_BENCH_E),
             ("LongBench loader", LONG_BENCH_LOADER_VERSION),
             ("datasets", preview_list(LONG_BENCH_DATASETS)),
             ("calibration variant", EVAL_CALIBRATION_VARIANT),
             ("max samples/dataset", MAX_SAMPLES_PER_DATASET),
+            ("sample selection", SAMPLE_SELECTION),
+            ("sample seed", SAMPLE_SELECTION_SEED),
             ("max input tokens", MAX_INPUT_TOKENS),
             ("max new token cap", MAX_NEW_TOKENS_CAP),
             ("chat template", USE_CHAT_TEMPLATE),
@@ -8326,15 +8538,24 @@ if __name__ == "__main__":
     print("  Model and tokenizer loaded.")
 
     data_by_dataset = preload_longbench_data()
+    sample_manifest_path = write_sample_selection_manifest(data_by_dataset)
+    print(f"  Sample manifest saved: {sample_manifest_path}")
     summary_by_mode = {}
+    mode_avgs = {}
+    mode_weighted = {}
+    dynamic_tracker = None
+    static_tracker = None
 
-    section("Baseline LongBench")
-    pq_manager.enabled = False
-    set_model_pq_manager(model, None)
-    _, baseline_summary, baseline_avg, baseline_weighted = evaluate_longbench_mode(
-        model, tokenizer, data_by_dataset, "baseline"
-    )
-    summary_by_mode["baseline"] = baseline_summary
+    if "baseline" in EVAL_MODES:
+        section("Baseline LongBench")
+        pq_manager.enabled = False
+        set_model_pq_manager(model, None)
+        _, baseline_summary, baseline_avg, baseline_weighted = evaluate_longbench_mode(
+            model, tokenizer, data_by_dataset, "baseline"
+        )
+        summary_by_mode["baseline"] = baseline_summary
+        mode_avgs["baseline"] = baseline_avg
+        mode_weighted["baseline"] = baseline_weighted
 
     if RUN_KEY_VALUE_SIDE_DIAGNOSTICS:
         section("Key-only dynamic PQ LongBench")
@@ -8348,6 +8569,8 @@ if __name__ == "__main__":
             model, tokenizer, data_by_dataset, "key_only_dynamic"
         )
         summary_by_mode["key_only_dynamic"] = key_only_summary
+        mode_avgs["key_only_dynamic"] = key_only_avg
+        mode_weighted["key_only_dynamic"] = key_only_weighted
 
         section("Value-only dynamic PQ LongBench")
         pq_manager.enabled = True
@@ -8360,48 +8583,56 @@ if __name__ == "__main__":
             model, tokenizer, data_by_dataset, "value_only_dynamic"
         )
         summary_by_mode["value_only_dynamic"] = value_only_summary
+        mode_avgs["value_only_dynamic"] = value_only_avg
+        mode_weighted["value_only_dynamic"] = value_only_weighted
 
-    section("Dynamic-outlier PQ LongBench")
-    pq_manager.enabled = True
-    pq_manager.quantize_keys = True
-    pq_manager.quantize_values = True
-    pq_manager.set_outlier_mode("dynamic")
-    pq_manager.reset_outlier_tracker()
-    set_model_pq_manager(model, pq_manager)
-    _, dynamic_summary, dynamic_avg, dynamic_weighted = evaluate_longbench_mode(
-        model, tokenizer, data_by_dataset, "dynamic"
-    )
-    summary_by_mode["dynamic"] = dynamic_summary
-    dynamic_tracker = pq_manager.outlier_tracker
-    dynamic_tracker.print_summary()
+    if "dynamic" in EVAL_MODES:
+        section("Dynamic-outlier PQ LongBench")
+        pq_manager.enabled = True
+        pq_manager.quantize_keys = True
+        pq_manager.quantize_values = True
+        pq_manager.set_outlier_mode("dynamic")
+        pq_manager.reset_outlier_tracker()
+        set_model_pq_manager(model, pq_manager)
+        _, dynamic_summary, dynamic_avg, dynamic_weighted = evaluate_longbench_mode(
+            model, tokenizer, data_by_dataset, "dynamic"
+        )
+        summary_by_mode["dynamic"] = dynamic_summary
+        mode_avgs["dynamic"] = dynamic_avg
+        mode_weighted["dynamic"] = dynamic_weighted
+        dynamic_tracker = pq_manager.outlier_tracker
+        dynamic_tracker.print_summary()
 
-    section(f"Loading {EVAL_CALIBRATION_MODE} calibration static masks")
-    static_masks, static_mask_source = load_calibration_static_masks(
-        LONGBENCH_E_CODEBOOK_DIR
-    )
-    save_static_masks(static_masks, json_path=STATIC_MASK_JSON, csv_path=STATIC_MASK_CSV)
-    print_kv_table(
-        "Static mask summary",
-        [
-            ("masks learned", len(static_masks)),
-            ("source", static_mask_source),
-            ("json", STATIC_MASK_JSON),
-            ("csv", STATIC_MASK_CSV),
-        ],
-    )
+    if "static" in EVAL_MODES:
+        section(f"Loading {EVAL_CALIBRATION_MODE} calibration static masks")
+        static_masks, static_mask_source = load_calibration_static_masks(
+            LONGBENCH_E_CODEBOOK_DIR
+        )
+        save_static_masks(static_masks, json_path=STATIC_MASK_JSON, csv_path=STATIC_MASK_CSV)
+        print_kv_table(
+            "Static mask summary",
+            [
+                ("masks learned", len(static_masks)),
+                ("source", static_mask_source),
+                ("json", STATIC_MASK_JSON),
+                ("csv", STATIC_MASK_CSV),
+            ],
+        )
 
-    section("Static-mask PQ LongBench")
-    pq_manager.quantize_keys = True
-    pq_manager.quantize_values = True
-    pq_manager.set_outlier_mode("static", static_outlier_masks=static_masks)
-    pq_manager.reset_outlier_tracker()
-    set_model_pq_manager(model, pq_manager)
-    _, static_summary, static_avg, static_weighted = evaluate_longbench_mode(
-        model, tokenizer, data_by_dataset, "static"
-    )
-    summary_by_mode["static"] = static_summary
-    static_tracker = pq_manager.outlier_tracker
-    static_tracker.print_summary()
+        section("Static-mask PQ LongBench")
+        pq_manager.quantize_keys = True
+        pq_manager.quantize_values = True
+        pq_manager.set_outlier_mode("static", static_outlier_masks=static_masks)
+        pq_manager.reset_outlier_tracker()
+        set_model_pq_manager(model, pq_manager)
+        _, static_summary, static_avg, static_weighted = evaluate_longbench_mode(
+            model, tokenizer, data_by_dataset, "static"
+        )
+        summary_by_mode["static"] = static_summary
+        mode_avgs["static"] = static_avg
+        mode_weighted["static"] = static_weighted
+        static_tracker = pq_manager.outlier_tracker
+        static_tracker.print_summary()
 
     comparison = pd.DataFrame(comparison_rows(summary_by_mode))
     print_df("Per-dataset LongBench comparison", comparison, index=False)
@@ -8412,51 +8643,77 @@ if __name__ == "__main__":
     )
     summary_df.to_csv(SUMMARY_CSV, index=False)
 
-    aggregate_df = pd.DataFrame([
-        {
-            "experiment": EXPERIMENT_NAME,
-            "key_bits_per_vector": key_bits,
-            "value_bits_per_vector": value_bits,
-            "avg_bits_per_scalar": avg_bps,
-            "compression_ratio": comp_ratio,
-            "baseline_dataset_avg": baseline_avg,
-            "dynamic_dataset_avg": dynamic_avg,
-            "static_dataset_avg": static_avg,
-            "dynamic_minus_baseline": dynamic_avg - baseline_avg,
-            "static_minus_baseline": static_avg - baseline_avg,
-            "static_minus_dynamic": static_avg - dynamic_avg,
-            "baseline_sample_weighted": baseline_weighted,
-            "dynamic_sample_weighted": dynamic_weighted,
-            "static_sample_weighted": static_weighted,
-        }
-    ])
+    aggregate_row = {
+        "experiment": EXPERIMENT_NAME,
+        "gpu": gpu_name,
+        "required_gpu": REQUIRED_GPU_NAME,
+        "eval_modes": ",".join(EVAL_MODES),
+        "test_mode": TEST_MODE,
+        "calibration_mode": EVAL_CALIBRATION_MODE,
+        "calibration_variant": EVAL_CALIBRATION_VARIANT,
+        "codebook_dir": LONGBENCH_E_CODEBOOK_DIR,
+        "output_dir": OUTPUT_DIR,
+        "sample_manifest": sample_manifest_path,
+        "max_samples_per_dataset": MAX_SAMPLES_PER_DATASET,
+        "sample_selection": SAMPLE_SELECTION,
+        "sample_selection_seed": SAMPLE_SELECTION_SEED,
+        "max_new_tokens_cap": MAX_NEW_TOKENS_CAP,
+        "key_bits_per_vector": key_bits,
+        "value_bits_per_vector": value_bits,
+        "avg_bits_per_scalar": avg_bps,
+        "compression_ratio": comp_ratio,
+    }
+    for mode in EVAL_MODES:
+        aggregate_row[f"{mode}_dataset_avg"] = mode_avgs.get(mode, float("nan"))
+        aggregate_row[f"{mode}_sample_weighted"] = mode_weighted.get(mode, float("nan"))
+    if "baseline" in mode_avgs and "dynamic" in mode_avgs:
+        aggregate_row["dynamic_minus_baseline"] = (
+            mode_avgs["dynamic"] - mode_avgs["baseline"]
+        )
+    if "baseline" in mode_avgs and "static" in mode_avgs:
+        aggregate_row["static_minus_baseline"] = (
+            mode_avgs["static"] - mode_avgs["baseline"]
+        )
+    if "dynamic" in mode_avgs and "static" in mode_avgs:
+        aggregate_row["static_minus_dynamic"] = (
+            mode_avgs["static"] - mode_avgs["dynamic"]
+        )
+    aggregate_df = pd.DataFrame([aggregate_row])
     aggregate_path = os.path.join(OUTPUT_DIR, "aggregate_result.csv")
     aggregate_df.to_csv(aggregate_path, index=False)
     print_df("Aggregate LongBench result", aggregate_df, index=False)
 
-    save_tracker_csvs(
-        dynamic_tracker,
-        DYNAMIC_OUTLIER_OVERALL_CSV,
-        DYNAMIC_OUTLIER_BY_HEAD_CSV,
-    )
-    save_tracker_csvs(
-        static_tracker,
-        STATIC_OUTLIER_OVERALL_CSV,
-        STATIC_OUTLIER_BY_HEAD_CSV,
-    )
+    saved_files = [
+        ("per-dataset comparison", RESULTS_CSV),
+        ("mode summary", SUMMARY_CSV),
+        ("aggregate result", aggregate_path),
+        ("sample manifest", sample_manifest_path),
+        ("predictions root", OUTPUT_DIR),
+    ]
+    if dynamic_tracker is not None:
+        save_tracker_csvs(
+            dynamic_tracker,
+            DYNAMIC_OUTLIER_OVERALL_CSV,
+            DYNAMIC_OUTLIER_BY_HEAD_CSV,
+        )
+        saved_files.extend([
+            ("dynamic outlier overall csv", DYNAMIC_OUTLIER_OVERALL_CSV),
+            ("dynamic outlier by-head csv", DYNAMIC_OUTLIER_BY_HEAD_CSV),
+        ])
+    if static_tracker is not None:
+        save_tracker_csvs(
+            static_tracker,
+            STATIC_OUTLIER_OVERALL_CSV,
+            STATIC_OUTLIER_BY_HEAD_CSV,
+        )
+        saved_files.extend([
+            ("static mask json", STATIC_MASK_JSON),
+            ("static mask csv", STATIC_MASK_CSV),
+            ("static outlier overall csv", STATIC_OUTLIER_OVERALL_CSV),
+            ("static outlier by-head csv", STATIC_OUTLIER_BY_HEAD_CSV),
+        ])
 
     print_kv_table(
         "Saved files",
-        [
-            ("per-dataset comparison", RESULTS_CSV),
-            ("mode summary", SUMMARY_CSV),
-            ("aggregate result", aggregate_path),
-            ("predictions root", OUTPUT_DIR),
-            ("static mask json", STATIC_MASK_JSON),
-            ("static mask csv", STATIC_MASK_CSV),
-            ("dynamic outlier overall csv", DYNAMIC_OUTLIER_OVERALL_CSV),
-            ("dynamic outlier by-head csv", DYNAMIC_OUTLIER_BY_HEAD_CSV),
-            ("static outlier overall csv", STATIC_OUTLIER_OVERALL_CSV),
-            ("static outlier by-head csv", STATIC_OUTLIER_BY_HEAD_CSV),
-        ],
+        saved_files,
     )
