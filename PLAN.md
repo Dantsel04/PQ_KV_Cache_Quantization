@@ -8,11 +8,11 @@ immediate gate is a paired smoke run on Qasper, MultiFieldQA-English, HotpotQA,
 100-sample A100 mini evaluation used for Variant A.
 
 Current command gate: extraction retry
-`pq-qa-count-c-extract-r2-20260811-000100` is present in the Drive bridge but has not
-been acknowledged. The unchanged controller readiness timestamp has now repeated for
-three consecutive goal turns. A local handoff watcher will submit a fresh extraction
-ID after the controller cell restarts. Do not start training until that exact result
-returns code 0 and an independent artifact audit passes.
+`pq-qa-count-c-extract-r5-20260811-001100` was accepted by the restarted controller
+at 2026-08-11 00:09 Pacific and is running commit `ab610b6`. The bridge has no exact
+terminal result yet. The controller deliberately leaves the previous result in place
+until the active child exits. Do not restart the controller or start training until
+the exact `r5` result returns code 0 and an independent artifact audit passes.
 
 The detailed data rationale and proposed mixtures are in `training_plan.md`. The
 prior held-out/contaminated smoke milestone is archived in `STATUS.md` and

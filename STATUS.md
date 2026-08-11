@@ -9,7 +9,7 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 `KV_Cache.ipynb` is the synced Colab artifact.
 
 - Deterministic long-context QA/count calibration Variant C was implemented and
-  pushed at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook
+  pushed beginning at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook
   cell marker is `deterministic_long_context_calibration_generation`; it uses stable
   lexical donor ranking with source-ID tie breaks and exact synthetic duplicate
   construction, with no manual or model-based document selection.
@@ -20,13 +20,21 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 - Local verification passed: `py -m py_compile KV_Cache.py`, Jupytext sync,
   `git diff --check`, unique bridge markers, and a deterministic helper harness that
   verified repeat generation, exact count labels, and approximately 4K prompts.
-- Extraction retry command `pq-qa-count-c-extract-r2-20260811-000100` was written
-  atomically to the Drive bridge using BOM-free UTF-8. Across three consecutive goal
-  turns, the controller readiness timestamp remained
-  `2026-08-11T06:12:22.825093+00:00` and `result.json` remained the old Scenario A
-  result. A hidden local handoff watcher is waiting for a new readiness timestamp;
-  after the controller restarts, it will submit a fresh command ID automatically and
-  save only the exact matching result. No Variant C GPU stage has started.
+- Follow-up commits `18ae890`, `f839664`, and `ab610b6` added deterministic prompt
+  hashes, replaced all-pairs near-duplicate matching with an exact inverted-shingle
+  candidate index, and fixed title-wrapped donor validation. Local regression checks
+  verified indexed/exhaustive decontamination equivalence and deterministic 4K QA/count
+  generation.
+- Extraction `r4` reached Variant C generation and returned code 1 because donor
+  paragraphs rendered as `Title: body` were compared against body-only provenance
+  hashes, yielding an empty donor pool. Commit `ab610b6` fixes that mismatch without
+  weakening provenance validation.
+- Extraction retry `pq-qa-count-c-extract-r5-20260811-001100` was accepted by the
+  restarted controller at 2026-08-11 00:09 Pacific on the A100 and checks out
+  `ab610b6`. As of 00:24, it had no matching terminal bridge result; the prior `r4`
+  result remains visible because the controller writes `result.json` only after its
+  child exits. Do not start training until `r5` returns code 0 and the independent
+  extraction audit passes.
 
 - A HotpotQA-focused calibration-data audit is documented in `training_plan.md`.
   It identifies the current held-out pool's 45.7% Chinese-document share, limited
