@@ -20,6 +20,15 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   and pinned LongBench-E decontamination evidence. GPU extraction, training, and
   evaluation have not yet been claimed; each remains behind an exact-ID/code-0
   bridge result and independent artifact audit.
+- Variant D extraction `pq-count-key-d-extract-r1-20260811-085510` returned code 0
+  on an A100 at commit `166e977` in `1177.9181083500007` seconds, with 800/800
+  shards, 36,000 train and 4,000 test vectors per head, zero failed documents, and
+  an exact 44% key count-critical share. Independent audit
+  `pq-count-key-d-extract-audit-r1-20260811-091831` returned code 1 because the
+  shortest prompt was 3,828 tokens, below the preserved 3,900-token floor. No
+  training was launched. The source now gives low-count schedules more clean donor
+  capacity and fails generation explicitly below 3,900 tokens; fresh extraction and
+  audit are required.
 
 - Deterministic long-context QA/count calibration Variant C was implemented and
   pushed beginning at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook

@@ -300,17 +300,18 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: no active command; Variant C stopped at the audited smoke gate
-- Last command ID: `pq-qa-count-c-passage-confirm-audit-r1-20260811-075520`
+- Stage: Variant D extraction regeneration required after the first independent
+  audit enforced the preserved 3,900-token prompt floor.
+- Last command ID: `pq-count-key-d-extract-audit-r1-20260811-091831` (code 1;
+  shortest prompt 3,828 tokens).
 - Colab bridge: `G:\My Drive\PQ_agent`
-- Last pushed implementation commit before this status update: `e4b83ae`.
-- Current checkpoint: Variant C extraction, training, exhaustive artifact audits,
-  five-dataset smoke, and paired 100-example passage-count confirmation are complete.
-  The passage-count gate failed, so no full-suite command is pending.
-- Next data-only experiment, if pursued: concentrate key-side calibration positions
-  on duplicate-passage identity tokens and answer-decode transitions using explicit
-  deterministic role quotas, then require passage-count recovery before retraining a
-  broad mixture or running the full suite.
+- Current Variant D implementation commit: `166e977`; a follow-up prompt-floor fix
+  is being verified and will be pushed before regeneration.
+- Current checkpoint: the first extraction returned code 0 with the correct 44%
+  key quota, but its independent audit failed the prompt-length gate. Training and
+  all evaluations remain unlaunched.
+- Next action: regenerate isolated Variant D calibration artifacts from scratch at
+  the fixed commit, then rerun the full independent extraction audit.
 
 ## Completion Criteria
 

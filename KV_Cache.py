@@ -664,7 +664,10 @@ def make_variant_d_passage_count_sample(
     ranked = rank_deterministic_donors(sample, donor_pool)
     source_id = str(sample.get("_source_id", ""))
     unique_count = 2 + (int(schedule_index) % 29)
-    components_per_unique = 4
+    # Low-answer schedules (especially 2--4 unique paragraphs) need more clean
+    # donor capacity per unique bundle to reach the unchanged 3.9K--4K context
+    # target while still varying paragraph multiplicity and length.
+    components_per_unique = 12
     selected = [
         donor for _, donor in ranked[:unique_count * components_per_unique]
     ]
@@ -758,6 +761,11 @@ def make_variant_d_passage_count_sample(
     transformed["_supporting_texts"] = best_bundles
     transformed["_variant_d_context_role_spans"] = best_spans
     final_prompt, prompt_ids = render_calibration_prompt(transformed, dataset, tokenizer, prompts)
+    if len(prompt_ids) < LONG_CONTEXT_MIN_PROMPT_TOKENS:
+        raise RuntimeError(
+            "Variant D prompt did not reach the 3,900-token calibration floor: "
+            f"schedule={schedule_index}, answer={unique_count}, tokens={len(prompt_ids)}"
+        )
     transformed["_long_context_generation"] = {
         "method": "deterministic_variant_d_passage_count_schedule",
         "schedule_index": int(schedule_index),
