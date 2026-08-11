@@ -2520,11 +2520,32 @@ def choose_variant_d_key_positions(roles, per_sample, rng):
         role_to_positions[role].append(pos)
 
     keep = []
-    quotas = scaled_role_quotas(per_sample, VARIANT_D_KEY_ROLE_QUOTAS)
-    # First preserve diversity among the five named critical roles.
+    # Scale the named critical-role weights into the 44% budget instead of
+    # consuming the full-budget quotas alphabetically. Reserve the one-token
+    # decode transition explicitly, then distribute the remaining budget among
+    # the context-side count roles. This guarantees that repeated spans cannot
+    # be starved merely because their role name sorts last.
+    transition_role = "answer_decode_transition"
+    transition_target = 1 if role_to_positions.get(transition_role) else 0
+    context_critical_config = {
+        role: weight
+        for role, weight in VARIANT_D_KEY_ROLE_QUOTAS.items()
+        if role in VARIANT_D_COUNT_CRITICAL_ROLES and role != transition_role
+    }
+    quotas = scaled_role_quotas(
+        target_critical - transition_target,
+        context_critical_config,
+    )
+    quotas[transition_role] = transition_target
+    quotas["ordinary_context"] = per_sample - target_critical
+
     for role in sorted(VARIANT_D_COUNT_CRITICAL_ROLES):
         candidates = role_to_positions.get(role, [])
-        take = min(len(candidates), quotas.get(role, 0), target_critical - len(keep))
+        take = min(
+            len(candidates),
+            quotas.get(role, 0),
+            target_critical - len(keep),
+        )
         if take > 0:
             keep.extend(rng.choice(candidates, size=take, replace=False).tolist())
 
@@ -2898,6 +2919,23 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
         value_test_index_report = key_test_index_report
 
     if CALIBRATION_VARIANT == "clean_count_key_d":
+        required_roles = {
+            "paragraph_boundary", "duplicate_anchor", "repeated_span",
+            "question_instruction_suffix", "answer_decode_transition",
+            "ordinary_context",
+        }
+        for tensor_side, split_name, report in (
+            ("keys", "train", key_train_index_report),
+            ("keys", "test", key_test_index_report),
+            ("values", "train", value_train_index_report),
+            ("values", "test", value_test_index_report),
+        ):
+            missing_roles = required_roles - set(report["role_counts"])
+            if missing_roles:
+                raise RuntimeError(
+                    f"Variant D {tensor_side}/{split_name} position index is "
+                    f"missing explicit roles: {sorted(missing_roles)}"
+                )
         critical_count = sum(
             key_train_index_report["role_counts"].get(role, 0)
             for role in VARIANT_D_COUNT_CRITICAL_ROLES

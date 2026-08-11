@@ -29,6 +29,18 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   training was launched. The source now gives low-count schedules more clean donor
   capacity and fails generation explicitly below 3,900 tokens; fresh extraction and
   audit are required.
+- Corrected extraction `pq-count-key-d-extract-r2-20260811-092215` returned code 0
+  on an A100 at commit `fba71cb8d9544589836b245d45bc26efeb944fa3` in
+  `1242.9397719459957` seconds. It regenerated all 800 documents at 3,901--4,096
+  tokens, wrote 36,000 train and 4,000 test vectors per head, covered every answer
+  from 2 through 30, and reported an exact 44% key count-critical share.
+  Independent audit `pq-count-key-d-extract-audit-r2-20260811-094730` returned code
+  1 because the key index had no `repeated_span` rows. The cause was a deterministic
+  sampler bug: the 22-position critical budget was filled in alphabetical role order
+  before that role was reached. No training was launched. The source now scales the
+  critical-role weights within the 22-position key budget (6 boundaries, 5 anchors,
+  8 repeated spans, 2 suffix tokens, and 1 decode transition) and refuses to finish
+  extraction unless all six explicit roles occur in both splits and tensor sides.
 
 - Deterministic long-context QA/count calibration Variant C was implemented and
   pushed beginning at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook

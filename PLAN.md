@@ -154,7 +154,7 @@ cluster, not just by prompt row.
   ranking is used.
 - [x] Complete local syntax, Jupytext, deterministic-generation, quota, range, and
   bridge-marker gates.
-- [ ] Commit and push the implementation.
+- [x] Commit and push the initial implementation and prompt-length-floor correction.
 - [ ] Extract Variant D and independently audit every local and Drive artifact.
 - [ ] Train isolated Variant D K/V codebooks and independently audit maps, groups,
   budgets, tables, LUTs, masks, reconstruction metrics, and Drive copies.
