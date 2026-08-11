@@ -1473,9 +1473,11 @@ def build_longbench_e_decontamination_index():
         "paragraph_hashes": set(),
         "context_hashes": set(),
         "context_shingles": [],
+        "shingle_postings": defaultdict(list),
         "documents": 0,
     }
     for task in EVAL_TASKS:
+        task_documents = 0
         for row in load_longbench_e_task(task):
             sample = {
                 "_source_id": first_present(row, ["_id", "id"], ""),
@@ -1502,8 +1504,17 @@ def build_longbench_e_decontamination_index():
                 for i in range(0, max(len(context_norm) - 79, 0), 40)
             }
             if shingles:
+                context_index = len(index["context_shingles"])
                 index["context_shingles"].append((task, shingles))
+                for shingle in shingles:
+                    index["shingle_postings"][shingle].append(context_index)
             index["documents"] += 1
+            task_documents += 1
+        print(
+            f"  decontamination index: {task} -> {task_documents} documents "
+            f"({index['documents']} cumulative)",
+            flush=True,
+        )
     return index
 
 
@@ -1515,11 +1526,19 @@ def near_duplicate_reason(sample, decon_index, threshold=0.82):
     }
     if not shingles:
         return None
-    for task, eval_shingles in decon_index["context_shingles"]:
-        union = len(shingles | eval_shingles)
-        if union == 0:
-            continue
-        score = len(shingles & eval_shingles) / union
+
+    # Exact Jaccard, accelerated by an inverted index. A context with zero shared
+    # shingles cannot meet a positive threshold, so only posting-list candidates
+    # need comparison. This replaces the old all-pairs set-union scan without
+    # changing the 0.82 decision rule.
+    overlap_counts = Counter()
+    for shingle in shingles:
+        overlap_counts.update(decon_index["shingle_postings"].get(shingle, ()))
+    for context_index in sorted(overlap_counts):
+        task, eval_shingles = decon_index["context_shingles"][context_index]
+        intersection = overlap_counts[context_index]
+        union = len(shingles) + len(eval_shingles) - intersection
+        score = intersection / union if union else 0.0
         if score >= threshold:
             return f"near_duplicate_context:{task}:{score:.3f}"
     return None
@@ -1697,6 +1716,10 @@ def select_variant_calibration_samples(rng, tokenizer=None, prompts=None):
     source_reports = []
 
     for spec in specs:
+        print(
+            f"  selecting {int(spec['documents'])} clean rows from {spec['name']}",
+            flush=True,
+        )
         raw_rows = load_pinned_training_rows(spec)
         order = list(range(len(raw_rows)))
         rng.shuffle(order)
@@ -1704,7 +1727,7 @@ def select_variant_calibration_samples(rng, tokenizer=None, prompts=None):
         accepted = 0
         rejected_by_reason = Counter()
 
-        for source_position in order:
+        for scan_count, source_position in enumerate(order, start=1):
             if accepted >= target:
                 break
             try:
@@ -1760,6 +1783,12 @@ def select_variant_calibration_samples(rng, tokenizer=None, prompts=None):
             chosen.append((task, sample_idx, sample))
             accepted_signatures.add(local_key)
             accepted += 1
+            if accepted % 50 == 0 or accepted == target:
+                print(
+                    f"    {spec['name']}: accepted {accepted}/{target} "
+                    f"after scanning {scan_count} rows",
+                    flush=True,
+                )
 
         if accepted < target:
             raise RuntimeError(
