@@ -657,14 +657,151 @@ def make_deterministic_passage_count_sample(sample, dataset, tokenizer, prompts,
     return transformed
 
 
+def make_variant_d_passage_count_sample(
+    sample, dataset, tokenizer, prompts, donor_pool, schedule_index
+):
+    """Build a clean deterministic count example on the fixed 2..30 schedule."""
+    ranked = rank_deterministic_donors(sample, donor_pool)
+    source_id = str(sample.get("_source_id", ""))
+    unique_count = 2 + (int(schedule_index) % 29)
+    components_per_unique = 4
+    selected = [
+        donor for _, donor in ranked[:unique_count * components_per_unique]
+    ]
+    if len(selected) != unique_count * components_per_unique:
+        raise RuntimeError(
+            f"Only {len(selected)} clean donors available for Variant D count sample"
+        )
+
+    raw_bundles = [
+        " ".join(
+            donor["text"]
+            for donor in selected[
+                index * components_per_unique:(index + 1) * components_per_unique
+            ]
+        )
+        for index in range(unique_count)
+    ]
+    bundle_ids = [tokenizer.encode(text, add_special_tokens=False) for text in raw_bundles]
+
+    # Total paragraph count and duplicate multiplicity both vary on fixed schedules.
+    duplicate_extras = 4 + (int(schedule_index) % 13)
+    multiplicities = [1] * unique_count
+    for extra in range(duplicate_extras):
+        target = stable_digest_int("variant_d_multiplicity", schedule_index, extra) % unique_count
+        multiplicities[target] += 1
+    order = [i for i, count in enumerate(multiplicities) for _ in range(count)]
+    random.Random(stable_digest_int("variant_d_order", schedule_index, source_id)).shuffle(order)
+    length_scales = [0.55, 0.70, 0.85, 1.00]
+
+    transformed = dict(sample)
+    transformed.update({
+        "input": "",
+        "answers": [str(unique_count)],
+        "answer": str(unique_count),
+        "_prompt_task": "passage_count",
+        "_answer_type": "exact_count",
+        "_supporting_titles": [],
+        "_all_titles": [],
+        "_paragraph_hashes": sorted(donor["paragraph_hash"] for donor in selected),
+    })
+
+    def context_at_cap(base_cap):
+        rendered = []
+        role_spans = defaultdict(list)
+        seen = Counter()
+        cursor = 0
+        visible_bundles = []
+        for unique_index, ids in enumerate(bundle_ids):
+            scale = length_scales[(unique_index + schedule_index) % len(length_scales)]
+            cap = max(16, int(base_cap * scale))
+            visible_bundles.append(tokenizer.decode(ids[:cap], skip_special_tokens=True))
+        for position, unique_index in enumerate(order):
+            boundary = f"Paragraph {position + 1}: "
+            anchor = f"[Duplicate anchor D{schedule_index:03d}-U{unique_index:02d}] "
+            body = visible_bundles[unique_index]
+            block = boundary + anchor + body
+            if rendered:
+                cursor += 2
+            boundary_start = cursor
+            anchor_start = boundary_start + len(boundary)
+            body_start = anchor_start + len(anchor)
+            role_spans["paragraph_boundary"].append(
+                [boundary_start, boundary_start + len(boundary)]
+            )
+            role_spans["duplicate_anchor"].append(
+                [anchor_start, anchor_start + len(anchor)]
+            )
+            if seen[unique_index] > 0:
+                role_spans["repeated_span"].append([body_start, body_start + len(body)])
+            seen[unique_index] += 1
+            rendered.append(block)
+            cursor += len(block)
+        return "\n\n".join(rendered), visible_bundles, dict(role_spans)
+
+    low, high = 16, max(len(ids) for ids in bundle_ids)
+    best_context, best_bundles, best_spans = context_at_cap(low)
+    while low <= high:
+        mid = (low + high) // 2
+        candidate_context, candidate_bundles, candidate_spans = context_at_cap(mid)
+        transformed["context"] = candidate_context
+        _, candidate_ids = render_calibration_prompt(transformed, dataset, tokenizer, prompts)
+        if len(candidate_ids) <= LONG_CONTEXT_TARGET_PROMPT_TOKENS:
+            best_context, best_bundles, best_spans = (
+                candidate_context, candidate_bundles, candidate_spans
+            )
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    transformed["context"] = best_context
+    transformed["_supporting_texts"] = best_bundles
+    transformed["_variant_d_context_role_spans"] = best_spans
+    final_prompt, prompt_ids = render_calibration_prompt(transformed, dataset, tokenizer, prompts)
+    transformed["_long_context_generation"] = {
+        "method": "deterministic_variant_d_passage_count_schedule",
+        "schedule_index": int(schedule_index),
+        "generation_seed": int(SEED),
+        "unique_count": int(unique_count),
+        "paragraph_instances": int(len(order)),
+        "duplicate_multiplicities": [int(x) for x in multiplicities],
+        "paragraph_order": [int(x) for x in order],
+        "paragraph_length_scales": [
+            float(length_scales[(i + schedule_index) % len(length_scales)])
+            for i in range(unique_count)
+        ],
+        "donors": [
+            {
+                "source_dataset": donor["source_dataset"],
+                "source_id": donor["source_id"],
+                "paragraph_index": donor["paragraph_index"],
+                "paragraph_hash": donor["paragraph_hash"],
+            }
+            for donor in selected
+        ],
+        "generated_context_sha1": hashlib.sha1(best_context.encode("utf-8")).hexdigest(),
+        "generated_prompt_sha1": hashlib.sha1(final_prompt.encode("utf-8")).hexdigest(),
+        "prompt_tokens_before_answer": int(len(prompt_ids)),
+        "target_prompt_tokens": LONG_CONTEXT_TARGET_PROMPT_TOKENS,
+    }
+    return transformed
+
+
 def generate_deterministic_long_context_calibration(chosen, tokenizer, prompts):
     donor_pool = build_deterministic_donor_pool(chosen)
     if len(donor_pool) < 100:
         raise RuntimeError(f"Deterministic donor pool is unexpectedly small: {len(donor_pool)}")
 
     generated = []
+    count_schedule_index = 0
     for task, sample_idx, sample in chosen:
-        if sample.get("_training_transform") == "passage_count":
+        if sample.get("_training_transform") == "passage_count_d":
+            sample = make_variant_d_passage_count_sample(
+                sample, task, tokenizer, prompts, donor_pool, count_schedule_index
+            )
+            count_schedule_index += 1
+            task = "synthetic_passage_count_train"
+        elif sample.get("_training_transform") == "passage_count":
             sample = make_deterministic_passage_count_sample(
                 sample, task, tokenizer, prompts, donor_pool
             )
@@ -773,11 +910,14 @@ CALIBRATION_VARIANT_ALIASES = {
     "clean_qa_count_c": "clean_qa_count_c",
     "qa_count_c": "clean_qa_count_c",
     "variant_c": "clean_qa_count_c",
+    "clean_count_key_d": "clean_count_key_d",
+    "count_key_d": "clean_count_key_d",
+    "variant_d": "clean_count_key_d",
 }
 if _calibration_variant_env not in CALIBRATION_VARIANT_ALIASES:
     raise ValueError(
         "PQ_CALIBRATION_VARIANT must be prior_held_out, clean_hotpot_a, "
-        "clean_suite_b, or clean_qa_count_c"
+        "clean_suite_b, clean_qa_count_c, or clean_count_key_d"
     )
 CALIBRATION_VARIANT = CALIBRATION_VARIANT_ALIASES[_calibration_variant_env]
 if CALIBRATION_VARIANT != "prior_held_out" and CALIBRATION_MODE != "held_out":
@@ -829,6 +969,33 @@ ROLE_POSITION_QUOTAS = {
     "question_instruction": 8,
     "answer_decode": 4,
     "uniform_context_distractor": 15,
+}
+
+# Variant D is a data-only intervention. Keys emphasize the token roles implicated
+# by passage identity/counting while values retain a broad context-heavy mixture.
+# Both policies still select exactly 50 unique vectors per document.
+VARIANT_D_KEY_ROLE_QUOTAS = {
+    "paragraph_boundary": 10,
+    "duplicate_anchor": 10,
+    "repeated_span": 14,
+    "question_instruction_suffix": 5,
+    "answer_decode_transition": 1,
+    "ordinary_context": 10,
+}
+VARIANT_D_VALUE_ROLE_QUOTAS = {
+    "paragraph_boundary": 6,
+    "duplicate_anchor": 3,
+    "repeated_span": 4,
+    "question_instruction_suffix": 6,
+    "answer_decode_transition": 1,
+    "ordinary_context": 30,
+}
+VARIANT_D_COUNT_CRITICAL_ROLES = {
+    "paragraph_boundary",
+    "duplicate_anchor",
+    "repeated_span",
+    "question_instruction_suffix",
+    "answer_decode_transition",
 }
 
 SOURCE_REVISIONS = {
@@ -1026,6 +1193,46 @@ CALIBRATION_VARIANT_SOURCES = {
             "prompt_task": "passage_count",
             "normalizer": "hotpot",
             "training_transform": "passage_count",
+            "license": "HotpotQA dataset terms",
+        },
+    ],
+    # Keep Variant C's clean QA/count source capacity fixed; only deterministic
+    # synthetic construction and side-specific vector selection change in D.
+    "clean_count_key_d": [
+        {
+            "name": "official_hotpotqa_long_train",
+            "family": "english_multihop_hotpot_long_4k",
+            "repo_id": "hotpotqa/hotpot_qa", "config": "distractor",
+            "split": "train", "documents": 240, "prompt_task": "hotpotqa",
+            "normalizer": "hotpot", "license": "HotpotQA dataset terms",
+        },
+        {
+            "name": "musique_long_train",
+            "family": "english_multihop_musique_long_4k",
+            "repo_id": "dgslibisey/MuSiQue", "config": None,
+            "split": "train", "documents": 160, "prompt_task": "hotpotqa",
+            "normalizer": "musique", "license": "MuSiQue dataset terms",
+        },
+        {
+            "name": "2wikimultihopqa_long_train",
+            "family": "english_multihop_2wiki_long_4k",
+            "repo_id": "framolfese/2WikiMultihopQA", "config": None,
+            "split": "train", "documents": 160, "prompt_task": "2wikimqa",
+            "normalizer": "hotpot", "license": "2WikiMultihopQA dataset terms",
+        },
+        {
+            "name": "narrativeqa_qasper_long_train",
+            "family": "english_single_document_qa_long_4k",
+            "repo_id": "deepmind/narrativeqa", "config": None,
+            "split": "train", "documents": 80, "prompt_task": "qasper",
+            "normalizer": "narrativeqa", "license": "NarrativeQA dataset terms",
+        },
+        {
+            "name": "synthetic_passage_count_train",
+            "family": "english_passage_count_long_4k",
+            "repo_id": "hotpotqa/hotpot_qa", "config": "distractor",
+            "split": "train", "documents": 160, "prompt_task": "passage_count",
+            "normalizer": "hotpot", "training_transform": "passage_count_d",
             "license": "HotpotQA dataset terms",
         },
     ],
@@ -1822,10 +2029,10 @@ def select_variant_calibration_samples(rng, tokenizer=None, prompts=None):
         })
 
     rng.shuffle(chosen)
-    if CALIBRATION_VARIANT == "clean_qa_count_c":
+    if CALIBRATION_VARIANT in {"clean_qa_count_c", "clean_count_key_d"}:
         if tokenizer is None or prompts is None:
             raise ValueError(
-                "clean_qa_count_c requires tokenizer and prompt templates for "
+                f"{CALIBRATION_VARIANT} requires tokenizer and prompt templates for "
                 "deterministic 4K context construction"
             )
         chosen = generate_deterministic_long_context_calibration(
@@ -1852,7 +2059,8 @@ def select_variant_calibration_samples(rng, tokenizer=None, prompts=None):
                 "manual_selection": False,
                 "model_based_ranking": False,
             }
-            if CALIBRATION_VARIANT == "clean_qa_count_c" else None
+            if CALIBRATION_VARIANT in {"clean_qa_count_c", "clean_count_key_d"}
+            else None
         ),
     }
     return chosen
@@ -2112,6 +2320,35 @@ def role_for_offset(start, end, role_spans):
     return "uniform_context_distractor"
 
 
+def variant_d_role_spans(prompt, sample):
+    """Return final-prompt character spans for Variant D's explicit role schema."""
+    context = str(sample.get("context", ""))
+    context_start = prompt.find(context)
+    if context_start < 0:
+        raise RuntimeError("Variant D context is not present verbatim in rendered prompt")
+    spans = defaultdict(list)
+    local_spans = sample.get("_variant_d_context_role_spans", {}) or {}
+    for role in ("paragraph_boundary", "duplicate_anchor", "repeated_span"):
+        for start, end in local_spans.get(role, []):
+            spans[role].append((context_start + int(start), context_start + int(end)))
+
+    # QA rows do not carry synthetic span metadata. Mark deterministic paragraph
+    # starts directly from their clean rendered context.
+    if not local_spans:
+        for match in re.finditer(r"(?:^|\n\s*\n)([^\n]{1,120})", context):
+            start = context_start + match.start(1)
+            spans["paragraph_boundary"].append((start, start + min(32, len(match.group(1)))))
+
+    suffix_start = context_start + len(context)
+    question = str(sample.get("input", "") or "")
+    if question:
+        spans["question_instruction_suffix"].extend(find_spans(prompt, [question]))
+    # The evaluator prompt's post-context request is explicitly count-critical.
+    if suffix_start < len(prompt):
+        spans["question_instruction_suffix"].append((suffix_start, len(prompt)))
+    return spans
+
+
 def build_capture_inputs_and_roles(sample, dataset, tokenizer, prompts):
     prompt_task = sample.get("_prompt_task", dataset)
     prompt = prompts[prompt_task].format(**sample)
@@ -2145,25 +2382,44 @@ def build_capture_inputs_and_roles(sample, dataset, tokenizer, prompts):
 
     support_texts = sample.get("_supporting_texts", []) or []
     titles = sample.get("_supporting_titles", []) or sample.get("_all_titles", []) or []
-    role_spans = {
-        "supporting_fact": find_spans(prompt, support_texts),
-        "bridge_title_entity": find_spans(prompt, titles),
-        "question_instruction": find_spans(
-            prompt,
-            [
-                sample.get("input", ""),
-                "Question:",
-                "Answer the question",
-                "Only give me the answer",
-            ],
-        ),
-    }
+    if CALIBRATION_VARIANT == "clean_count_key_d":
+        role_spans = variant_d_role_spans(prompt, sample)
+    else:
+        role_spans = {
+            "supporting_fact": find_spans(prompt, support_texts),
+            "bridge_title_entity": find_spans(prompt, titles),
+            "question_instruction": find_spans(
+                prompt,
+                [
+                    sample.get("input", ""),
+                    "Question:",
+                    "Answer the question",
+                    "Only give me the answer",
+                ],
+            ),
+        }
 
     roles = []
     titles_for_token = []
     for start, end in offsets:
-        role = role_for_offset(int(start), int(end), role_spans)
-        roles.append(role or "uniform_context_distractor")
+        if CALIBRATION_VARIANT == "clean_count_key_d":
+            role = "ordinary_context"
+            for candidate_role in (
+                "paragraph_boundary", "duplicate_anchor", "repeated_span",
+                "question_instruction_suffix",
+            ):
+                if any(
+                    int(start) < span_end and int(end) > span_start
+                    for span_start, span_end in role_spans.get(candidate_role, [])
+                ):
+                    role = candidate_role
+                    break
+        else:
+            role = role_for_offset(int(start), int(end), role_spans)
+        roles.append(role or (
+            "ordinary_context" if CALIBRATION_VARIANT == "clean_count_key_d"
+            else "uniform_context_distractor"
+        ))
         title = ""
         if role == "bridge_title_entity":
             fragment = prompt[int(start):int(end)].lower()
@@ -2178,22 +2434,29 @@ def build_capture_inputs_and_roles(sample, dataset, tokenizer, prompts):
     if answer_ids:
         answer_ids = answer_ids[:TEACHER_FORCE_ANSWER_TOKENS]
         token_ids = list(token_ids) + answer_ids
-        roles.extend(["answer_decode"] * len(answer_ids))
+        if CALIBRATION_VARIANT == "clean_count_key_d":
+            roles.extend(
+                ["answer_decode_transition"]
+                + ["ordinary_context"] * (len(answer_ids) - 1)
+            )
+        else:
+            roles.extend(["answer_decode"] * len(answer_ids))
         titles_for_token.extend([""] * len(answer_ids))
 
     return list(token_ids), roles, titles_for_token, len(offsets)
 
 
-def scaled_role_quotas(per_sample):
-    base_total = sum(ROLE_POSITION_QUOTAS.values())
+def scaled_role_quotas(per_sample, quota_config=None):
+    quota_config = quota_config or ROLE_POSITION_QUOTAS
+    base_total = sum(quota_config.values())
     quotas = {
         role: int(math.floor(per_sample * count / base_total))
-        for role, count in ROLE_POSITION_QUOTAS.items()
+        for role, count in quota_config.items()
     }
     remaining = per_sample - sum(quotas.values())
     order = sorted(
-        ROLE_POSITION_QUOTAS,
-        key=lambda role: ROLE_POSITION_QUOTAS[role],
+        quota_config,
+        key=lambda role: quota_config[role],
         reverse=True,
     )
     idx = 0
@@ -2204,14 +2467,14 @@ def scaled_role_quotas(per_sample):
     return quotas
 
 
-def choose_role_aware_positions(roles, per_sample, rng):
+def choose_role_aware_positions(roles, per_sample, rng, quota_config=None):
     role_to_positions = defaultdict(list)
     for pos, role in enumerate(roles):
         role_to_positions[role].append(pos)
 
     keep = []
     shortfalls = {}
-    quotas = scaled_role_quotas(per_sample)
+    quotas = scaled_role_quotas(per_sample, quota_config=quota_config)
     for role, quota in quotas.items():
         candidates = [p for p in role_to_positions.get(role, []) if p not in keep]
         if len(candidates) >= quota:
@@ -2241,6 +2504,58 @@ def choose_role_aware_positions(roles, per_sample, rng):
     return np.array(keep, dtype=np.int64), shortfalls, quotas
 
 
+def choose_variant_d_key_positions(roles, per_sample, rng):
+    """Select exactly 44% count-critical key positions whenever supply permits."""
+    target_critical = int(round(per_sample * 0.44))
+    role_to_positions = defaultdict(list)
+    for pos, role in enumerate(roles):
+        role_to_positions[role].append(pos)
+
+    keep = []
+    quotas = scaled_role_quotas(per_sample, VARIANT_D_KEY_ROLE_QUOTAS)
+    # First preserve diversity among the five named critical roles.
+    for role in sorted(VARIANT_D_COUNT_CRITICAL_ROLES):
+        candidates = role_to_positions.get(role, [])
+        take = min(len(candidates), quotas.get(role, 0), target_critical - len(keep))
+        if take > 0:
+            keep.extend(rng.choice(candidates, size=take, replace=False).tolist())
+
+    # Backfill missing critical-role quotas from any other count-critical role.
+    used = set(keep)
+    critical_pool = [
+        pos for pos, role in enumerate(roles)
+        if role in VARIANT_D_COUNT_CRITICAL_ROLES and pos not in used
+    ]
+    need_critical = target_critical - len(keep)
+    if need_critical > 0 and critical_pool:
+        take = min(need_critical, len(critical_pool))
+        keep.extend(rng.choice(critical_pool, size=take, replace=False).tolist())
+
+    critical_realized = len(keep)
+    used = set(keep)
+    ordinary_pool = [
+        pos for pos, role in enumerate(roles)
+        if pos not in used and role not in VARIANT_D_COUNT_CRITICAL_ROLES
+    ]
+    need = min(per_sample, len(roles)) - len(keep)
+    if need > 0:
+        take = min(need, len(ordinary_pool))
+        if take > 0:
+            keep.extend(rng.choice(ordinary_pool, size=take, replace=False).tolist())
+        need -= take
+    if need > 0:
+        used = set(keep)
+        fallback = [pos for pos in range(len(roles)) if pos not in used]
+        keep.extend(rng.choice(fallback, size=need, replace=False).tolist())
+    keep = np.array(sorted(int(x) for x in keep), dtype=np.int64)
+    shortfalls = {
+        "count_critical": int(max(0, target_critical - critical_realized))
+    }
+    quotas = dict(quotas)
+    quotas["count_critical_total"] = int(target_critical)
+    return keep, shortfalls, quotas
+
+
 @torch.no_grad()
 def extract_shards(model, tokenizer, prompts, chosen):
     """One shard per document. Safe to interrupt and re-run."""
@@ -2263,7 +2578,8 @@ def extract_shards(model, tokenizer, prompts, chosen):
     print(f"  ~{shard_mb:.1f} MB per shard, ~{shard_mb * len(chosen) / 1000:.1f} GB "
           f"of shards on disk")
 
-    rng = np.random.default_rng(SEED)
+    key_rng = np.random.default_rng(SEED)
+    value_rng = np.random.default_rng(SEED + 104729)
     written, skipped, failed = 0, 0, []
 
     model.eval()
@@ -2279,10 +2595,27 @@ def extract_shards(model, tokenizer, prompts, chosen):
         input_ids = torch.tensor([prompt_ids], dtype=torch.long)
         seq_len = input_ids.shape[1]
 
-        keep, role_shortfalls, role_quotas = choose_role_aware_positions(
-            roles, min(per_sample, seq_len), rng
-        )
-        keep_idx = torch.tensor(keep, device=device, dtype=torch.long)
+        if CALIBRATION_VARIANT == "clean_count_key_d":
+            key_keep, key_role_shortfalls, key_role_quotas = choose_variant_d_key_positions(
+                roles, min(per_sample, seq_len), key_rng
+            )
+            value_keep, value_role_shortfalls, value_role_quotas = choose_role_aware_positions(
+                roles, min(per_sample, seq_len), value_rng,
+                quota_config=VARIANT_D_VALUE_ROLE_QUOTAS,
+            )
+        else:
+            key_keep, key_role_shortfalls, key_role_quotas = choose_role_aware_positions(
+                roles, min(per_sample, seq_len), key_rng
+            )
+            value_keep = key_keep.copy()
+            value_role_shortfalls = dict(key_role_shortfalls)
+            value_role_quotas = dict(key_role_quotas)
+
+        capture_keep = np.array(sorted(set(key_keep.tolist()) | set(value_keep.tolist())))
+        capture_lookup = {int(position): index for index, position in enumerate(capture_keep)}
+        key_local = np.array([capture_lookup[int(position)] for position in key_keep])
+        value_local = np.array([capture_lookup[int(position)] for position in value_keep])
+        keep_idx = torch.tensor(capture_keep, device=device, dtype=torch.long)
 
         try:
             all_kvs = model(input_ids.to(device), keep_idx)
@@ -2292,8 +2625,8 @@ def extract_shards(model, tokenizer, prompts, chosen):
             gc.collect(); torch.cuda.empty_cache()
             continue
 
-        k_stack = np.stack([k for k, _ in all_kvs], axis=0)   # [L, H, per_sample, D]
-        v_stack = np.stack([v for _, v in all_kvs], axis=0)
+        k_stack = np.stack([k[:, key_local, :] for k, _ in all_kvs], axis=0)
+        v_stack = np.stack([v[:, value_local, :] for _, v in all_kvs], axis=0)
 
         # Write to a temp name first so an interrupt cannot leave a half-written shard
         # that resume would then trust.
@@ -2303,9 +2636,16 @@ def extract_shards(model, tokenizer, prompts, chosen):
                  sample_key=np.array(str(sample_idx)),
                  prompt_tokens=np.array(int(prompt_token_count)),
                  capture_tokens=np.array(int(seq_len)),
-                 role=np.array([roles[int(pos)] for pos in keep], dtype=object),
-                 token_offset=np.array(keep, dtype=np.int32),
-                 paragraph_title=np.array([token_titles[int(pos)] for pos in keep], dtype=object),
+                 key_role=np.array([roles[int(pos)] for pos in key_keep], dtype=object),
+                 value_role=np.array([roles[int(pos)] for pos in value_keep], dtype=object),
+                 key_token_offset=np.array(key_keep, dtype=np.int32),
+                 value_token_offset=np.array(value_keep, dtype=np.int32),
+                 key_paragraph_title=np.array(
+                     [token_titles[int(pos)] for pos in key_keep], dtype=object
+                 ),
+                 value_paragraph_title=np.array(
+                     [token_titles[int(pos)] for pos in value_keep], dtype=object
+                 ),
                  variant=np.array(CALIBRATION_VARIANT),
                  calibration_mode=np.array(CALIBRATION_MODE),
                  source_dataset=np.array(sample.get("_source_dataset", task)),
@@ -2321,8 +2661,10 @@ def extract_shards(model, tokenizer, prompts, chosen):
                  decontamination_status=np.array(
                      (sample.get("_decontamination") or {}).get("status", "legacy")
                  ),
-                 role_shortfalls=np.array(json.dumps(role_shortfalls)),
-                 role_quotas=np.array(json.dumps(role_quotas)))
+                 key_role_shortfalls=np.array(json.dumps(key_role_shortfalls)),
+                 value_role_shortfalls=np.array(json.dumps(value_role_shortfalls)),
+                 key_role_quotas=np.array(json.dumps(key_role_quotas)),
+                 value_role_quotas=np.array(json.dumps(value_role_quotas)))
         os.replace(tmp_path + ".npz" if os.path.exists(tmp_path + ".npz") else tmp_path,
                    out_path)
 
@@ -2363,7 +2705,8 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
     val_buf = np.zeros_like(key_buf)
 
     doc_rows = []
-    slot_metadata = []
+    key_slot_metadata = []
+    value_slot_metadata = []
     cursor = 0
 
     def z_scalar(z, key, default=""):
@@ -2381,11 +2724,26 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
             start, end = cursor, cursor + actual_positions
             key_buf[:, :, start:end, :] = z["k"]
             val_buf[:, :, start:end, :] = z["v"]
-            roles = [str(x) for x in z["role"].tolist()]
-            token_offsets = [int(x) for x in z["token_offset"].tolist()]
-            titles = [str(x) for x in z["paragraph_title"].tolist()]
+            key_roles = [str(x) for x in z[
+                "key_role" if "key_role" in z.files else "role"
+            ].tolist()]
+            value_roles = [str(x) for x in z[
+                "value_role" if "value_role" in z.files else "role"
+            ].tolist()]
+            key_offsets = [int(x) for x in z[
+                "key_token_offset" if "key_token_offset" in z.files else "token_offset"
+            ].tolist()]
+            value_offsets = [int(x) for x in z[
+                "value_token_offset" if "value_token_offset" in z.files else "token_offset"
+            ].tolist()]
+            key_titles = [str(x) for x in z[
+                "key_paragraph_title" if "key_paragraph_title" in z.files else "paragraph_title"
+            ].tolist()]
+            value_titles = [str(x) for x in z[
+                "value_paragraph_title" if "value_paragraph_title" in z.files else "paragraph_title"
+            ].tolist()]
             for local_idx in range(actual_positions):
-                slot_metadata.append({
+                common_meta = {
                     "global_slot": int(start + local_idx),
                     "task": task,
                     "variant": str(z_scalar(z, "variant", CALIBRATION_VARIANT)),
@@ -2396,15 +2754,28 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
                     "source_id": str(z_scalar(z, "source_id", sample_idx)),
                     "source_revision": str(z_scalar(z, "source_revision", "")),
                     "source_license": str(z_scalar(z, "source_license", "")),
-                    "position_role": roles[local_idx],
-                    "token_offset": token_offsets[local_idx],
-                    "paragraph_title": titles[local_idx],
-                "answer_type": str(z_scalar(z, "answer_type", "")),
-                "long_context_generation": json.loads(str(z_scalar(
-                    z, "long_context_generation", "{}"
-                ))),
-                "decontamination_status": str(z_scalar(z, "decontamination_status", "legacy")),
+                    "answer_type": str(z_scalar(z, "answer_type", "")),
+                    "long_context_generation": json.loads(str(z_scalar(
+                        z, "long_context_generation", "{}"
+                    ))),
+                    "decontamination_status": str(z_scalar(
+                        z, "decontamination_status", "legacy"
+                    )),
                     "document_ordinal": int(d),
+                }
+                key_slot_metadata.append({
+                    **common_meta,
+                    "tensor_side": "keys",
+                    "position_role": key_roles[local_idx],
+                    "token_offset": key_offsets[local_idx],
+                    "paragraph_title": key_titles[local_idx],
+                })
+                value_slot_metadata.append({
+                    **common_meta,
+                    "tensor_side": "values",
+                    "position_role": value_roles[local_idx],
+                    "token_offset": value_offsets[local_idx],
+                    "paragraph_title": value_titles[local_idx],
                 })
             doc_rows.append({
                 "task": task,
@@ -2420,8 +2791,14 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
                 "positions_kept": int(actual_positions),
                 "slot_start": int(start),
                 "slot_end": int(end),
-                "role_counts": dict(Counter(roles)),
-                "role_shortfalls": json.loads(str(z_scalar(z, "role_shortfalls", "{}"))),
+                "key_role_counts": dict(Counter(key_roles)),
+                "value_role_counts": dict(Counter(value_roles)),
+                "key_role_shortfalls": json.loads(str(z_scalar(
+                    z, "key_role_shortfalls", z_scalar(z, "role_shortfalls", "{}")
+                ))),
+                "value_role_shortfalls": json.loads(str(z_scalar(
+                    z, "value_role_shortfalls", z_scalar(z, "role_shortfalls", "{}")
+                ))),
                 "long_context_generation": json.loads(str(z_scalar(
                     z, "long_context_generation", "{}"
                 ))),
@@ -2439,8 +2816,10 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
         raise ValueError("TEST_FRACTION leaves no training documents.")
 
     train_end = int(sum(shard_lengths[:n_train_docs]))
-    train_slots = np.arange(0, train_end)
-    test_slots = np.arange(train_end, total_slots)
+    key_train_slots = np.arange(0, train_end)
+    key_test_slots = np.arange(train_end, total_slots)
+    value_train_slots = np.arange(0, train_end)
+    value_test_slots = np.arange(train_end, total_slots)
 
     for d, row in enumerate(doc_rows):
         row["split"] = "train" if d < n_train_docs else "test"
@@ -2450,21 +2829,29 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
         bucket = train_tasks if row["split"] == "train" else test_tasks
         bucket[row["task"]] = bucket.get(row["task"], 0) + 1
 
-    print(f"  split: {n_train_docs} train documents ({len(train_slots)} vectors/head), "
-          f"{n_test_docs} test documents ({len(test_slots)} vectors/head)")
+    print(f"  split: {n_train_docs} train documents ({len(key_train_slots)} vectors/head), "
+          f"{n_test_docs} test documents ({len(key_test_slots)} vectors/head)")
     print(f"    train tasks: {train_tasks}")
     print(f"    test  tasks: {test_tasks}")
 
     # Shuffle positions WITHIN each split. Harmless for the trainer (it samples
     # randomly anyway) but keeps any future head-of-file truncation unbiased.
-    rng = np.random.default_rng(SEED + 1)
-    rng.shuffle(train_slots)
-    rng.shuffle(test_slots)
+    key_rng = np.random.default_rng(SEED + 1)
+    value_rng = np.random.default_rng(SEED + 2)
+    key_rng.shuffle(key_train_slots)
+    key_rng.shuffle(key_test_slots)
+    value_rng.shuffle(value_train_slots)
+    value_rng.shuffle(value_test_slots)
+    if CALIBRATION_VARIANT != "clean_count_key_d":
+        value_train_slots = key_train_slots.copy()
+        value_test_slots = key_test_slots.copy()
 
-    slot_lookup = {row["global_slot"]: row for row in slot_metadata}
-
-    def write_position_index(slots, split_name):
-        path = os.path.join(output_dir, f"position_index_{split_name}.jsonl")
+    def write_position_index(slots, split_name, tensor_side, metadata):
+        suffix = (
+            f"_{tensor_side}" if CALIBRATION_VARIANT == "clean_count_key_d" else ""
+        )
+        path = os.path.join(output_dir, f"position_index_{split_name}{suffix}.jsonl")
+        slot_lookup = {row["global_slot"]: row for row in metadata}
         role_counts = Counter()
         task_counts = Counter()
         source_counts = Counter()
@@ -2485,15 +2872,45 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
             "source_counts": dict(source_counts),
         }
 
-    train_index_report = write_position_index(train_slots, "train")
-    test_index_report = write_position_index(test_slots, "test")
+    key_train_index_report = write_position_index(
+        key_train_slots, "train", "keys", key_slot_metadata
+    )
+    key_test_index_report = write_position_index(
+        key_test_slots, "test", "keys", key_slot_metadata
+    )
+    if CALIBRATION_VARIANT == "clean_count_key_d":
+        value_train_index_report = write_position_index(
+            value_train_slots, "train", "values", value_slot_metadata
+        )
+        value_test_index_report = write_position_index(
+            value_test_slots, "test", "values", value_slot_metadata
+        )
+    else:
+        value_train_index_report = key_train_index_report
+        value_test_index_report = key_test_index_report
+
+    if CALIBRATION_VARIANT == "clean_count_key_d":
+        critical_count = sum(
+            key_train_index_report["role_counts"].get(role, 0)
+            for role in VARIANT_D_COUNT_CRITICAL_ROLES
+        )
+        critical_fraction = critical_count / max(1, key_train_index_report["rows"])
+        if not 0.40 <= critical_fraction <= 0.50:
+            raise RuntimeError(
+                "Variant D key count-critical role fraction must be 40-50%; "
+                f"observed {critical_fraction:.6f}"
+            )
+        print(
+            f"  Variant D key count-critical quota: {critical_count}/"
+            f"{key_train_index_report['rows']} = {critical_fraction:.2%}"
+        )
 
     for layer in tqdm(range(num_layers), desc="Saving", leave=True):
         for head in range(num_kv_heads):
-            k_tr = key_buf[layer, head][train_slots].astype(SAVE_DTYPE)
-            k_te = key_buf[layer, head][test_slots].astype(SAVE_DTYPE)
-            v_tr = val_buf[layer, head][train_slots].astype(SAVE_DTYPE)
-            v_te = val_buf[layer, head][test_slots].astype(SAVE_DTYPE)
+            k_tr = key_buf[layer, head][key_train_slots].astype(SAVE_DTYPE)
+            k_te = key_buf[layer, head][key_test_slots].astype(SAVE_DTYPE)
+            v_tr = val_buf[layer, head][value_train_slots].astype(SAVE_DTYPE)
+            v_te = val_buf[layer, head][value_test_slots].astype(SAVE_DTYPE)
             np.save(f"{output_dir}/keys/L{layer}_H{head}_Train.npy", k_tr)
             np.save(f"{output_dir}/keys/L{layer}_H{head}_Test.npy", k_te)
             np.save(f"{output_dir}/values/L{layer}_H{head}_Train.npy", v_tr)
@@ -2533,8 +2950,8 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
         "source_revisions": SOURCE_REVISIONS,
         "max_input_length": MAX_INPUT_LENGTH,
         "teacher_force_answer_tokens": TEACHER_FORCE_ANSWER_TOKENS,
-        "vectors_per_head": int(len(train_slots)),      # train side, what the trainer reads
-        "test_vectors_per_head": int(len(test_slots)),
+        "vectors_per_head": int(len(key_train_slots)),
+        "test_vectors_per_head": int(len(key_test_slots)),
         "num_documents": int(n_docs),
         "num_documents_requested": int(NUM_CALIB_SAMPLES),
         "positions_per_document": int(per_sample),
@@ -2543,9 +2960,26 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
         "split_granularity": "document",
         "documents_per_task_train": train_tasks,
         "documents_per_task_test": test_tasks,
-        "position_index_train": train_index_report,
-        "position_index_test": test_index_report,
-        "role_position_quotas": ROLE_POSITION_QUOTAS,
+        "position_index_train": key_train_index_report,
+        "position_index_test": key_test_index_report,
+        "position_indexes": {
+            "keys": {
+                "train": key_train_index_report,
+                "test": key_test_index_report,
+            },
+            "values": {
+                "train": value_train_index_report,
+                "test": value_test_index_report,
+            },
+        },
+        "role_position_quotas": (
+            {
+                "keys": VARIANT_D_KEY_ROLE_QUOTAS,
+                "values": VARIANT_D_VALUE_ROLE_QUOTAS,
+            }
+            if CALIBRATION_VARIANT == "clean_count_key_d"
+            else ROLE_POSITION_QUOTAS
+        ),
         "prompt_length_summary": {
             "minimum": int(min(row["prompt_tokens"] for row in doc_rows)),
             "maximum": int(max(row["prompt_tokens"] for row in doc_rows)),
@@ -2554,10 +2988,20 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
                 row["prompt_tokens"] >= 3900 for row in doc_rows
             )),
         },
-        "realized_role_counts_train": train_index_report["role_counts"],
-        "realized_role_counts_test": test_index_report["role_counts"],
-        "realized_source_counts_train": train_index_report["source_counts"],
-        "realized_source_counts_test": test_index_report["source_counts"],
+        "realized_role_counts_train": key_train_index_report["role_counts"],
+        "realized_role_counts_test": key_test_index_report["role_counts"],
+        "realized_role_counts_by_side": {
+            "keys": {
+                "train": key_train_index_report["role_counts"],
+                "test": key_test_index_report["role_counts"],
+            },
+            "values": {
+                "train": value_train_index_report["role_counts"],
+                "test": value_test_index_report["role_counts"],
+            },
+        },
+        "realized_source_counts_train": key_train_index_report["source_counts"],
+        "realized_source_counts_test": key_test_index_report["source_counts"],
         "decontamination_report": (
             select_variant_calibration_samples.last_report
             if CALIBRATION_VARIANT != "prior_held_out" else None
@@ -2569,6 +3013,44 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
         "failed_documents": failed,
         "save_dtype": np.dtype(SAVE_DTYPE).name,
         "seed": SEED,
+        "source_ids": sorted({
+            f"{row['source_dataset']}::{row['source_id']}" for row in doc_rows
+        }),
+        "generated_prompt_hashes": sorted({
+            row["long_context_generation"].get("generated_prompt_sha1")
+            for row in doc_rows
+            if row["long_context_generation"].get("generated_prompt_sha1")
+        }),
+        "answer_distribution": dict(Counter(
+            str(row["long_context_generation"].get("unique_count"))
+            for row in doc_rows
+            if row["long_context_generation"].get("unique_count") is not None
+        )),
+        "decontamination_evidence": {
+            "all_samples_accepted": all(
+                meta["decontamination_status"] == "accepted"
+                for meta in key_slot_metadata
+            ) if CALIBRATION_VARIANT != "prior_held_out" else None,
+            "evaluation_examples_used": 0 if CALIBRATION_VARIANT != "prior_held_out" else None,
+            "pinned_longbench_e_revision": LONGBENCH_E_REVISION,
+        },
+        "variant_d_sampling_policy": (
+            {
+                "keys": "explicit count-critical role quotas",
+                "values": "broad context-heavy QA/count role quotas",
+                "count_critical_roles": sorted(VARIANT_D_COUNT_CRITICAL_ROLES),
+                "key_count_critical_train_vectors": int(sum(
+                    key_train_index_report["role_counts"].get(role, 0)
+                    for role in VARIANT_D_COUNT_CRITICAL_ROLES
+                )),
+                "key_count_critical_train_fraction": float(sum(
+                    key_train_index_report["role_counts"].get(role, 0)
+                    for role in VARIANT_D_COUNT_CRITICAL_ROLES
+                ) / max(1, key_train_index_report["rows"])),
+                "hard_example_selection": False,
+            }
+            if CALIBRATION_VARIANT == "clean_count_key_d" else None
+        ),
         "samples": doc_rows,
     }
     with open(f"{output_dir}/calibration_manifest.json", "w") as f:
@@ -2576,7 +3058,7 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
 
     del key_buf, val_buf
     gc.collect()
-    return len(train_slots), len(test_slots)
+    return len(key_train_slots), len(key_test_slots)
 
 
 if __name__ == "__main__":
@@ -3587,11 +4069,14 @@ TRAINING_VARIANT_ALIASES = {
     "clean_qa_count_c": "clean_qa_count_c",
     "qa_count_c": "clean_qa_count_c",
     "variant_c": "clean_qa_count_c",
+    "clean_count_key_d": "clean_count_key_d",
+    "count_key_d": "clean_count_key_d",
+    "variant_d": "clean_count_key_d",
 }
 if _training_variant_env not in TRAINING_VARIANT_ALIASES:
     raise ValueError(
         "PQ_TRAINING_CALIBRATION_VARIANT must be prior_held_out, "
-        "clean_hotpot_a, clean_suite_b, or clean_qa_count_c"
+        "clean_hotpot_a, clean_suite_b, clean_qa_count_c, or clean_count_key_d"
     )
 EXPECTED_CALIBRATION_VARIANT = TRAINING_VARIANT_ALIASES[_training_variant_env]
 if EXPECTED_CALIBRATION_VARIANT != "prior_held_out" and EXPECTED_CALIBRATION_MODE != "held_out":
@@ -3782,6 +4267,42 @@ def load_and_validate_calibration_manifest():
             )
         rejected = decon.get("rejected_counts", {})
         print(f"  decontamination rejected counts: {rejected}")
+        if variant == "clean_count_key_d":
+            required_roles = {
+                "paragraph_boundary", "duplicate_anchor", "repeated_span",
+                "question_instruction_suffix", "answer_decode_transition",
+                "ordinary_context",
+            }
+            side_counts = manifest.get("realized_role_counts_by_side", {})
+            key_counts = side_counts.get("keys", {}).get("train", {})
+            value_counts = side_counts.get("values", {}).get("train", {})
+            if not required_roles.issubset(key_counts) or not required_roles.issubset(value_counts):
+                raise ValueError("Variant D manifest is missing explicit K/V role strata")
+            critical = manifest.get("variant_d_sampling_policy", {}).get(
+                "key_count_critical_train_fraction"
+            )
+            if critical is None or not 0.40 <= float(critical) <= 0.50:
+                raise ValueError(
+                    f"Variant D key count-critical fraction is outside 40-50%: {critical}"
+                )
+            answer_distribution = manifest.get("answer_distribution", {})
+            if set(answer_distribution) != {str(x) for x in range(2, 31)}:
+                raise ValueError("Variant D answer distribution must span every count 2..30")
+            if len(manifest.get("source_ids", [])) != int(manifest.get("num_documents", -1)):
+                raise ValueError("Variant D manifest source IDs are missing or non-unique")
+            if len(manifest.get("generated_prompt_hashes", [])) != int(
+                manifest.get("num_documents", -1)
+            ):
+                raise ValueError("Variant D must record one unique prompt hash per document")
+            evidence = manifest.get("decontamination_evidence", {})
+            if evidence.get("evaluation_examples_used") != 0 or not evidence.get(
+                "all_samples_accepted"
+            ):
+                raise ValueError("Variant D decontamination evidence is incomplete")
+            if not manifest.get("position_indexes", {}).get("keys") or not manifest.get(
+                "position_indexes", {}
+            ).get("values"):
+                raise ValueError("Variant D requires separate key/value position indexes")
     if mode in {"matched", "contaminated"}:
         if manifest.get("source_dataset_variant") != "longbench_e":
             raise ValueError(
@@ -4198,7 +4719,7 @@ def get_or_create_groups(tensor_type, train_files):
 # Raw Data Loading
 # ============================================================
 
-_POSITION_INDEX_CACHE = None
+_POSITION_INDEX_CACHE = {}
 
 
 def adaptive_group_target(num_heads):
@@ -4225,14 +4746,18 @@ def validate_adaptive_group_budget_rule():
     print(f"Adaptive group budget validation passed: {observed}")
 
 
-def load_position_index():
+def load_position_index(tensor_type):
     global _POSITION_INDEX_CACHE
-    if _POSITION_INDEX_CACHE is not None:
-        return _POSITION_INDEX_CACHE
+    if tensor_type in _POSITION_INDEX_CACHE:
+        return _POSITION_INDEX_CACHE[tensor_type]
 
-    path = os.path.join(TRAINING_DATA_ROOT, "position_index_train.jsonl")
+    side_path = os.path.join(
+        TRAINING_DATA_ROOT, f"position_index_train_{tensor_type}.jsonl"
+    )
+    legacy_path = os.path.join(TRAINING_DATA_ROOT, "position_index_train.jsonl")
+    path = side_path if os.path.exists(side_path) else legacy_path
     if not os.path.exists(path):
-        _POSITION_INDEX_CACHE = None
+        _POSITION_INDEX_CACHE[tensor_type] = None
         return None
 
     rows = []
@@ -4241,7 +4766,7 @@ def load_position_index():
             if line.strip():
                 rows.append(json.loads(line))
     rows.sort(key=lambda row: int(row["row_index"]))
-    _POSITION_INDEX_CACHE = rows
+    _POSITION_INDEX_CACHE[tensor_type] = rows
     return rows
 
 
@@ -4347,7 +4872,7 @@ def load_raw_data_for_group(file_paths, target_total, min_per_head, tensor_type=
     role_counts = Counter()
     source_family_counts = Counter()
     duplication_count_total = 0
-    metadata_rows = load_position_index()
+    metadata_rows = load_position_index(tensor_type)
 
     for head_idx, f in enumerate(tqdm(file_paths, desc="Loading raw data for group")):
         head_data = np.load(f).astype(np.float32)
@@ -6984,11 +7509,14 @@ EVAL_VARIANT_ALIASES = {
     "clean_qa_count_c": "clean_qa_count_c",
     "qa_count_c": "clean_qa_count_c",
     "variant_c": "clean_qa_count_c",
+    "clean_count_key_d": "clean_count_key_d",
+    "count_key_d": "clean_count_key_d",
+    "variant_d": "clean_count_key_d",
 }
 if _eval_calibration_variant_env not in EVAL_VARIANT_ALIASES:
     raise ValueError(
         "PQ_LONGBENCH_CALIBRATION_VARIANT must be prior_held_out, "
-        "clean_hotpot_a, clean_suite_b, or clean_qa_count_c"
+        "clean_hotpot_a, clean_suite_b, clean_qa_count_c, or clean_count_key_d"
     )
 EVAL_CALIBRATION_VARIANT = EVAL_VARIANT_ALIASES[_eval_calibration_variant_env]
 if EVAL_CALIBRATION_VARIANT != "prior_held_out" and EVAL_CALIBRATION_MODE != "held_out":

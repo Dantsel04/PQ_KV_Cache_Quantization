@@ -2,10 +2,11 @@
 
 ## Active Milestone
 
-Extract, train, and evaluate deterministic long-context QA/count Variant C. The
-immediate gate is a paired smoke run on Qasper, MultiFieldQA-English, HotpotQA,
-2WikiMQA, and passage counting; a good smoke result advances to the same 13-dataset
-100-sample A100 mini evaluation used for Variant A.
+Implement, extract, train, and gate deterministic data-only Variant D. Variant D
+keeps Variant C's clean 800-document QA/count mixture and all model, compression,
+codebook-capacity, and evaluation settings fixed, but gives keys and values separate
+position policies. Keys must realize 40--50% count-critical vectors; values remain
+broadly distributed across the QA/count mixture.
 
 Variant C reached its decision gate. The five-dataset smoke and independent audit
 returned code 0, but its ten passage-count samples had a zero baseline and were
@@ -13,6 +14,12 @@ uninformative. A paired 100-example passage-count confirmation then reproduced t
 prior baseline `18.0` and scored only `2.6666666666666665` with Variant C dynamic PQ,
 versus Variant A's `2.0`. This failed the five-point-improvement and 50%-retention
 gates, so the conditional 13-dataset mini evaluation was not launched.
+
+Variant D first runs the exact paired Scenario A 100-example passage-count sample.
+It advances only if combined dynamic PQ scores at least `7.666666666666666` (five
+absolute points above Variant C) and at least `9.0` (50% of baseline), so the binding
+threshold is `9.0`. Only a passing result advances to the five-dataset four-mode
+smoke; the 13-dataset A100 mini remains conditional on both counting and QA smoke.
 
 The detailed data rationale and proposed mixtures are in `training_plan.md`. The
 prior held-out/contaminated smoke milestone is archived in `STATUS.md` and
@@ -129,6 +136,33 @@ train/test and task-validation splits must be separated by question and supporti
 cluster, not just by prompt row.
 
 ## Implementation Checklist
+
+### Variant D -- key-side passage counting
+
+- [x] Add a clean isolated `clean_count_key_d` calibration/training/evaluation tag.
+- [x] Generate deterministic synthetic passage-count prompts covering answers 2--30.
+- [x] Vary duplicate multiplicity, paragraph order, paragraph length, and paragraph
+  count by fixed code-driven schedules.
+- [x] Record paragraph-boundary, duplicate-anchor, repeated-span,
+  question/instruction-suffix, one-token decode-transition, and ordinary-context
+  roles.
+- [x] Use separate key/value position indexes and policies, with a checked 44% key
+  count-critical target and a context-heavy value policy.
+- [x] Record qualified source IDs, seed, prompt hashes, answer distribution, role
+  counts, and pinned decontamination evidence in the manifest.
+- [x] Disable hard-example selection for this variant; no manual or model-generated
+  ranking is used.
+- [x] Complete local syntax, Jupytext, deterministic-generation, quota, range, and
+  bridge-marker gates.
+- [ ] Commit and push the implementation.
+- [ ] Extract Variant D and independently audit every local and Drive artifact.
+- [ ] Train isolated Variant D K/V codebooks and independently audit maps, groups,
+  budgets, tables, LUTs, masks, reconstruction metrics, and Drive copies.
+- [ ] Run and audit the paired Scenario A passage-count evaluation.
+- [ ] If passage count passes, run and audit the five-dataset four-mode smoke.
+- [ ] If both gates pass, run and audit the prior 13-dataset A100 mini evaluation.
+- [ ] Record exact command IDs, return codes, scores, artifacts, and final decision
+  in `STATUS.md`, this plan, and `LONGBENCH_E_RESULTS.md`.
 
 ### Phase 1 — configuration and provenance
 

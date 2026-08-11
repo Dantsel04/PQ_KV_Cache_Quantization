@@ -8,6 +8,19 @@ This repository contains a Jupytext-managed Google Colab workflow for Qwen3-8B
 KV-cache product quantization. `KV_Cache.py` is the editable source and
 `KV_Cache.ipynb` is the synced Colab artifact.
 
+- Variant D (`clean_count_key_d`) is the active data-only experiment. Its local
+  implementation adds a fixed 2--30 synthetic counting schedule, deterministic
+  multiplicity/order/length/paragraph-count variation, six explicit token roles,
+  and separate key/value position policies. The key policy targets exactly 44%
+  count-critical vectors when role supply permits; the value policy stays
+  context-heavy across the unchanged 800-document Variant C QA/count mixture.
+- Variant D performs no hard-example selection, manual document selection, or
+  model-generated ranking. Its manifest records qualified source IDs, the extraction
+  seed, generated prompt hashes, answer distribution, side-specific role counts,
+  and pinned LongBench-E decontamination evidence. GPU extraction, training, and
+  evaluation have not yet been claimed; each remains behind an exact-ID/code-0
+  bridge result and independent artifact audit.
+
 - Deterministic long-context QA/count calibration Variant C was implemented and
   pushed beginning at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook
   cell marker is `deterministic_long_context_calibration_generation`; it uses stable
