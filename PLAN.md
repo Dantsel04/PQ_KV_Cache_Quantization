@@ -7,11 +7,12 @@ immediate gate is a paired smoke run on Qasper, MultiFieldQA-English, HotpotQA,
 2WikiMQA, and passage counting; a good smoke result advances to the same 13-dataset
 100-sample A100 mini evaluation used for Variant A.
 
-Current command gate: codebook training
-`pq-qa-count-c-train-r1-20260811-003240` was submitted after extraction `r5` and its
-independent artifact audit both returned code 0. Do not restart the controller or
-start the smoke evaluation until the exact training result returns code 0 and the
-independent codebook audit passes.
+Current command gate: five-dataset smoke evaluation
+`pq-qa-count-c-smoke-r1-20260811-065530` was submitted after training and the
+corrected exhaustive codebook audit both returned code 0. Do not restart the
+controller or submit the full 13-dataset mini evaluation until the exact smoke result
+returns code 0, its predictions are independently reconciled, and the documented
+advancement gate passes.
 
 The detailed data rationale and proposed mixtures are in `training_plan.md`. The
 prior held-out/contaminated smoke milestone is archived in `STATUS.md` and

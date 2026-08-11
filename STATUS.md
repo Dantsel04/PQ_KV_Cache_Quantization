@@ -39,10 +39,23 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   exact 240/160/160/80/160 source mix, all 8,568 donor references, all 160 exact
   counting constructions, document-disjoint train/test metadata, all five position
   roles in both splits, all 1,152 finite K/V arrays, and matching Drive artifacts.
-- Codebook training command `pq-qa-count-c-train-r1-20260811-003240` was accepted by
-  the controller after the extraction audit passed. Its exact terminal result is
-  pending. Do not begin the smoke evaluation until training returns code 0 and the
-  independent codebook audit passes.
+- Codebook training command `pq-qa-count-c-train-r1-20260811-003240` returned code 0
+  on the A100 in `19570.492242776` seconds. It trained separate 64-group key/value
+  trees with the adaptive budget and copied them to Drive. Reconstruction NMSE was
+  keys `0.0035588322915693724` (`0.0032526608594300468` with three outliers) and
+  values `0.01935353161805151` (`0.018816424291494507` with three outliers).
+- Codebook audit `r1` returned code 1 because the independent verifier treated the
+  Python-list LUT text as a whitespace matrix; no trained artifact failed. After
+  switching only the verifier to `ast.literal_eval`, audit
+  `pq-qa-count-c-codebook-audit-r2-20260811-065330` returned code 0. It verified, per
+  side, 64 groups, all 288 heads, all 12,288 fine/coarse/LUT files and their shapes,
+  exact adaptive budgets with no duplication or shortfall, all source/role strata,
+  finite reconstruction metrics, 576 static masks, and 24,583 matching local/Drive
+  files.
+- Five-dataset smoke command `pq-qa-count-c-smoke-r1-20260811-065530` is active. It
+  uses ten deterministic random samples each from Qasper, MultiFieldQA-English,
+  HotpotQA, 2WikiMQA, and passage counting with seed `20260809`, 128 generated-token
+  cap, and baseline/key-only/value-only/combined-dynamic diagnostics.
 
 - A HotpotQA-focused calibration-data audit is documented in `training_plan.md`.
   It identifies the current held-out pool's 45.7% Chinese-document share, limited
