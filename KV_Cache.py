@@ -401,6 +401,15 @@ def deterministic_paragraphs(text):
     return [part for part in blocks if len(part) >= 80]
 
 
+def deterministic_paragraph_hash(text):
+    normalized = re.sub(
+        r"[^\w\s]",
+        "",
+        re.sub(r"\s+", " ", str(text).lower()),
+    ).strip()
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
+
+
 def stable_digest_int(*parts):
     payload = "\x1f".join(str(part) for part in parts).encode("utf-8")
     return int(hashlib.sha256(payload).hexdigest()[:16], 16)
@@ -413,16 +422,22 @@ def build_deterministic_donor_pool(chosen):
         source_id = str(sample.get("_source_id", ""))
         source_dataset = str(sample.get("_source_dataset", ""))
         declared_hashes = set(sample.get("_paragraph_hashes", []) or [])
-        for paragraph_index, text in enumerate(deterministic_paragraphs(sample.get("context", ""))):
-            paragraph_hash = hashlib.sha1(
-                re.sub(
-                    r"[^\w\s]",
-                    "",
-                    re.sub(r"\s+", " ", text.lower()),
-                ).strip().encode("utf-8")
-            ).hexdigest()
-            if paragraph_hash not in declared_hashes:
+        for paragraph_index, block in enumerate(deterministic_paragraphs(sample.get("context", ""))):
+            # Hotpot-style contexts render each verified paragraph as
+            # ``Title: body`` while `_paragraph_hashes` intentionally hashes only
+            # the body. Resolve that display wrapper deterministically and retain
+            # only a text form whose hash was checked against LongBench-E.
+            candidates = [block]
+            if ": " in block:
+                candidates.append(block.split(": ", 1)[1])
+            verified = [
+                (candidate, deterministic_paragraph_hash(candidate))
+                for candidate in candidates
+                if deterministic_paragraph_hash(candidate) in declared_hashes
+            ]
+            if not verified:
                 continue
+            text, paragraph_hash = verified[0]
             if paragraph_hash in seen_hashes:
                 continue
             seen_hashes.add(paragraph_hash)
