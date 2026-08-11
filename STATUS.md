@@ -52,10 +52,27 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   exact adaptive budgets with no duplication or shortfall, all source/role strata,
   finite reconstruction metrics, 576 static masks, and 24,583 matching local/Drive
   files.
-- Five-dataset smoke command `pq-qa-count-c-smoke-r1-20260811-065530` is active. It
-  uses ten deterministic random samples each from Qasper, MultiFieldQA-English,
-  HotpotQA, 2WikiMQA, and passage counting with seed `20260809`, 128 generated-token
-  cap, and baseline/key-only/value-only/combined-dynamic diagnostics.
+- Five-dataset smoke command `pq-qa-count-c-smoke-r1-20260811-065530` returned code
+  0 in `1434.0522092989995` seconds. Independent audit
+  `pq-qa-count-c-smoke-audit-r1-20260811-072100` returned code 0 and reconciled all
+  200 predictions across baseline, key-only, value-only, and combined dynamic modes.
+  Dataset-average scores were baseline `27.929914022255225`, key-only
+  `25.415594270228418`, value-only `28.458727232519806`, and combined dynamic
+  `28.376327532117006`. Combined dynamic improved HotpotQA by `+4.04761904761905`
+  and MultiFieldQA-English by `+4.27644285539022`, held 2WikiMQA flat, regressed
+  Qasper by `-6.09199435370035`, and tied a zero baseline on the ten passage-count
+  examples. The tiny passage-count slice was therefore inconclusive.
+- Paired 100-example passage-count confirmation
+  `pq-qa-count-c-passage-confirm-r1-20260811-072300` returned code 0, and audit
+  `pq-qa-count-c-passage-confirm-audit-r1-20260811-075520` returned code 0. It used
+  the exact prior Scenario A source indices and reproduced baseline `18.0`. Variant C
+  dynamic scored `2.6666666666666665`, only `+0.6666666666666665` over Variant A's
+  `2.0` and just `0.14814814814814814` retention versus baseline. It failed both the
+  five-point-improvement and 50%-retention gates.
+- The conditional 13-dataset 100-sample rerun was not launched. Variant C gave
+  encouraging but noisy QA smoke changes while failing its central passage-count
+  objective on the statistically stronger paired check. Spending another roughly
+  11 A100-hours is not justified for this codebook under the agreed gate.
 
 - A HotpotQA-focused calibration-data audit is documented in `training_plan.md`.
   It identifies the current held-out pool's 45.7% Chinese-document share, limited

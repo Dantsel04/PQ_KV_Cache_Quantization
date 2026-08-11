@@ -7,12 +7,12 @@ immediate gate is a paired smoke run on Qasper, MultiFieldQA-English, HotpotQA,
 2WikiMQA, and passage counting; a good smoke result advances to the same 13-dataset
 100-sample A100 mini evaluation used for Variant A.
 
-Current command gate: five-dataset smoke evaluation
-`pq-qa-count-c-smoke-r1-20260811-065530` was submitted after training and the
-corrected exhaustive codebook audit both returned code 0. Do not restart the
-controller or submit the full 13-dataset mini evaluation until the exact smoke result
-returns code 0, its predictions are independently reconciled, and the documented
-advancement gate passes.
+Variant C reached its decision gate. The five-dataset smoke and independent audit
+returned code 0, but its ten passage-count samples had a zero baseline and were
+uninformative. A paired 100-example passage-count confirmation then reproduced the
+prior baseline `18.0` and scored only `2.6666666666666665` with Variant C dynamic PQ,
+versus Variant A's `2.0`. This failed the five-point-improvement and 50%-retention
+gates, so the conditional 13-dataset mini evaluation was not launched.
 
 The detailed data rationale and proposed mixtures are in `training_plan.md`. The
 prior held-out/contaminated smoke milestone is archived in `STATUS.md` and
@@ -266,22 +266,17 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: blocked pending Colab controller restart
-- Active command ID: `pq-qa-count-c-extract-r2-20260811-000100` (not acknowledged)
+- Stage: no active command; Variant C stopped at the audited smoke gate
+- Last command ID: `pq-qa-count-c-passage-confirm-audit-r1-20260811-075520`
 - Colab bridge: `G:\My Drive\PQ_agent`
-- Last pushed implementation commit: `18ae890d9b19f386a39734d0d48f4bcce846fb2c`
-- Current checkpoint: command
-  `pq-scenario-a-a100-mini-100x128-bd-eval-20260809-163944` returned code 0 on
-  `NVIDIA A100-SXM4-80GB` after `39530.790924315` seconds. The audited run used
-  all 13 LongBench-E datasets, 100 deterministic random samples per dataset,
-  seed `20260809`, max new tokens 128, baseline plus dynamic only, held-out
-  `clean_hotpot_a` Variant A codebooks, and run tag
-  `scenario_a_a100_100x128_bd`. Verified dataset-average scores were baseline
-  `47.65967494764164`, dynamic `44.349905555086025`, delta
-  `-3.3097693925556158`.
-- Next action: rerun the Colab bridge controller cell. The local handoff watcher will
-  submit a fresh extraction ID after the new readiness timestamp appears. After an
-  exact code-0 result, independently audit Variant C before codebook training.
+- Last pushed implementation commit before this status update: `e4b83ae`.
+- Current checkpoint: Variant C extraction, training, exhaustive artifact audits,
+  five-dataset smoke, and paired 100-example passage-count confirmation are complete.
+  The passage-count gate failed, so no full-suite command is pending.
+- Next data-only experiment, if pursued: concentrate key-side calibration positions
+  on duplicate-passage identity tokens and answer-decode transitions using explicit
+  deterministic role quotas, then require passage-count recovery before retraining a
+  broad mixture or running the full suite.
 
 ## Completion Criteria
 

@@ -1,5 +1,59 @@
 # LongBench-E PQ Training and Evaluation Results
 
+## Variant C QA/Counting Calibration Result
+
+Variant C used 800 deterministic clean 4K prompts: 240 HotpotQA, 160 MuSiQue,
+160 2WikiMultihopQA, 80 NarrativeQA rendered in Qasper form, and 160 synthetic
+passage-count prompts. Extraction, exhaustive calibration audit, adaptive key/value
+training, and exhaustive codebook audit all returned code 0 on the A100.
+
+Reconstruction results:
+
+| Side | PQ NMSE | NMSE with 3 preserved outliers |
+|---|---:|---:|
+| Keys | 0.0035588322915693724 | 0.0032526608594300468 |
+| Values | 0.01935353161805151 | 0.018816424291494507 |
+
+The audited five-dataset smoke used ten deterministic random samples per dataset and
+four modes. Scores were:
+
+| Dataset | Baseline | Key only | Value only | Combined dynamic | Combined delta |
+|---|---:|---:|---:|---:|---:|
+| qasper | 27.292313332966696 | 20.8 | 26.08655596209776 | 21.200318979266346 | -6.09199435370035 |
+| multifieldqa_en | 37.69059011164275 | 37.56368563685638 | 41.54041353383459 | 41.96703296703297 | +4.27644285539022 |
+| hotpotqa | 64.66666666666667 | 65.38095238095238 | 64.66666666666667 | 68.71428571428572 | +4.04761904761905 |
+| 2wikimqa | 10.0 | 0.0 | 10.0 | 10.0 | 0.0 |
+| passage_count | 0.0 | 3.3333333333333335 | 0.0 | 0.0 | 0.0 |
+| **Dataset average** | **27.929914022255225** | **25.415594270228418** | **28.458727232519806** | **28.376327532117006** | **+0.446413509861781** |
+
+Because the ten passage-count examples had a zero baseline, a paired 100-example
+confirmation reused the exact Scenario A source indices. Baseline reproduced `18.0`;
+Variant A dynamic was `2.0`, and Variant C dynamic was `2.6666666666666665`.
+Variant C therefore improved only `+0.6666666666666665` over Variant A and retained
+`14.814814814814814%` of baseline. It failed the predeclared five-point-improvement
+and 50%-retention gate.
+
+The conditional 13-dataset rerun was not launched. The QA smoke was directionally
+mixed and the stronger counting check showed that adding synthetic counting documents
+to a globally stratified calibration mixture did not repair the counting collapse.
+The next data-only attempt should change *which key vectors are sampled*: assign an
+explicit high key-side quota to duplicate-passage identity tokens and answer-decode
+transitions, selected by deterministic token/paragraph metadata. Merely increasing
+the number of synthetic counting documents is not supported by this result.
+
+Evidence:
+
+| Stage | Command ID | Return code |
+|---|---|---:|
+| Variant C extraction | `pq-qa-count-c-extract-r5-20260811-001100` | 0 |
+| Extraction audit | `pq-qa-count-c-extract-audit-r5-20260811-003120` | 0 |
+| Codebook training | `pq-qa-count-c-train-r1-20260811-003240` | 0 |
+| Corrected codebook audit | `pq-qa-count-c-codebook-audit-r2-20260811-065330` | 0 |
+| Five-dataset smoke | `pq-qa-count-c-smoke-r1-20260811-065530` | 0 |
+| Smoke audit | `pq-qa-count-c-smoke-audit-r1-20260811-072100` | 0 |
+| 100-example passage-count confirmation | `pq-qa-count-c-passage-confirm-r1-20260811-072300` | 0 |
+| Passage-count confirmation audit | `pq-qa-count-c-passage-confirm-audit-r1-20260811-075520` | 0 |
+
 ## Final Status of This Test Run
 
 This run ended at the user's requested diagnostic checkpoint. Held-out extraction,
