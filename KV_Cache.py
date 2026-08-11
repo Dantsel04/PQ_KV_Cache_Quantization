@@ -372,6 +372,281 @@ if __name__ == "__main__":
     os.system(f"rsync -ah --progress {pq_output_dir}/ {drive_pq_path}/")
     print("Process complete.")
 
+# %% id="pqDeterministicLongContext"
+# =====================================================================================
+# Deterministic long-context calibration-data generation
+# PQ_BRIDGE_CELL_MARKER: deterministic_long_context_calibration_generation
+#
+# This cell deliberately contains no model-based ranking or manual selection. It
+# turns clean, decontaminated source examples into task-shaped long prompts using a
+# stable lexical score and source-ID tie break. Synthetic passage-count examples are
+# assembled from the same clean paragraph pool with exact, recorded duplicate counts.
+# =====================================================================================
+
+import hashlib
+import random
+import re
+
+LONG_CONTEXT_MIN_PROMPT_TOKENS = 3900
+LONG_CONTEXT_TARGET_PROMPT_TOKENS = 4000
+LONG_CONTEXT_MAX_PROMPT_TOKENS = 4096
+
+
+def deterministic_text_terms(text):
+    return set(re.findall(r"[a-z0-9]+", str(text).lower()))
+
+
+def deterministic_paragraphs(text):
+    blocks = [re.sub(r"\s+", " ", part).strip() for part in re.split(r"\n\s*\n", str(text))]
+    return [part for part in blocks if len(part) >= 80]
+
+
+def stable_digest_int(*parts):
+    payload = "\x1f".join(str(part) for part in parts).encode("utf-8")
+    return int(hashlib.sha256(payload).hexdigest()[:16], 16)
+
+
+def build_deterministic_donor_pool(chosen):
+    donors = []
+    seen_hashes = set()
+    for _, _, sample in chosen:
+        source_id = str(sample.get("_source_id", ""))
+        source_dataset = str(sample.get("_source_dataset", ""))
+        declared_hashes = set(sample.get("_paragraph_hashes", []) or [])
+        for paragraph_index, text in enumerate(deterministic_paragraphs(sample.get("context", ""))):
+            paragraph_hash = hashlib.sha1(
+                re.sub(
+                    r"[^\w\s]",
+                    "",
+                    re.sub(r"\s+", " ", text.lower()),
+                ).strip().encode("utf-8")
+            ).hexdigest()
+            if paragraph_hash not in declared_hashes:
+                continue
+            if paragraph_hash in seen_hashes:
+                continue
+            seen_hashes.add(paragraph_hash)
+            donors.append({
+                "source_id": source_id,
+                "source_dataset": source_dataset,
+                "paragraph_index": int(paragraph_index),
+                "paragraph_hash": paragraph_hash,
+                "text": text,
+                "terms": deterministic_text_terms(text),
+            })
+    return donors
+
+
+def rank_deterministic_donors(sample, donor_pool):
+    query_terms = deterministic_text_terms(
+        " ".join([
+            str(sample.get("input", "")),
+            " ".join(str(x) for x in sample.get("_supporting_titles", []) or []),
+        ])
+    )
+    own_source_id = str(sample.get("_source_id", ""))
+    own_hashes = set(sample.get("_paragraph_hashes", []) or [])
+    ranked = []
+    for donor in donor_pool:
+        if donor["source_id"] == own_source_id or donor["paragraph_hash"] in own_hashes:
+            continue
+        overlap = len(query_terms & donor["terms"])
+        score = overlap / max(1, len(query_terms))
+        ranked.append((
+            -score,
+            donor["source_dataset"],
+            donor["source_id"],
+            donor["paragraph_index"],
+            donor,
+        ))
+    ranked.sort(key=lambda row: row[:4])
+    return [(float(-row[0]), row[4]) for row in ranked]
+
+
+def render_calibration_prompt(sample, dataset, tokenizer, prompts):
+    prompt_task = sample.get("_prompt_task", dataset)
+    prompt = prompts[prompt_task].format(**sample)
+    used_chat_template = False
+    if prompt_task not in NO_CHAT_TEMPLATE:
+        try:
+            prompt = tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}],
+                tokenize=False,
+                add_generation_prompt=True,
+                enable_thinking=False,
+            )
+        except TypeError:
+            prompt = tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}],
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        used_chat_template = True
+    ids = tokenizer.encode(prompt, add_special_tokens=not used_chat_template)
+    return prompt, ids
+
+
+def fit_qa_sample_to_long_context(sample, dataset, tokenizer, prompts, donor_pool):
+    sample = dict(sample)
+    original_context = str(sample.get("context", ""))
+    donors_used = []
+    existing_hashes = set(sample.get("_paragraph_hashes", []) or [])
+
+    _, prompt_ids = render_calibration_prompt(sample, dataset, tokenizer, prompts)
+    for score, donor in rank_deterministic_donors(sample, donor_pool):
+        if len(prompt_ids) >= LONG_CONTEXT_MIN_PROMPT_TOKENS:
+            break
+        candidate_label = (
+            f"Donor passage [{donor['source_dataset']}:{donor['source_id']}:"
+            f"{donor['paragraph_index']}]: {donor['text']}"
+        )
+        candidate = dict(sample)
+        candidate["context"] = sample["context"] + "\n\n" + candidate_label
+        _, candidate_ids = render_calibration_prompt(candidate, dataset, tokenizer, prompts)
+        if len(candidate_ids) > LONG_CONTEXT_MAX_PROMPT_TOKENS:
+            available = max(0, LONG_CONTEXT_TARGET_PROMPT_TOKENS - len(prompt_ids) - 8)
+            donor_ids = tokenizer.encode(donor["text"], add_special_tokens=False)
+            if available < 16:
+                continue
+            candidate_label = (
+                f"Donor passage [{donor['source_dataset']}:{donor['source_id']}:"
+                f"{donor['paragraph_index']}]: "
+                + tokenizer.decode(donor_ids[:available], skip_special_tokens=True)
+            )
+            candidate["context"] = sample["context"] + "\n\n" + candidate_label
+            _, candidate_ids = render_calibration_prompt(candidate, dataset, tokenizer, prompts)
+            if len(candidate_ids) > LONG_CONTEXT_MAX_PROMPT_TOKENS:
+                continue
+        sample = candidate
+        prompt_ids = candidate_ids
+        existing_hashes.add(donor["paragraph_hash"])
+        donors_used.append({
+            "source_dataset": donor["source_dataset"],
+            "source_id": donor["source_id"],
+            "paragraph_index": donor["paragraph_index"],
+            "paragraph_hash": donor["paragraph_hash"],
+            "lexical_score": score,
+        })
+
+    sample["_paragraph_hashes"] = sorted(existing_hashes)
+    sample["_long_context_generation"] = {
+        "method": "stable_lexical_overlap_then_source_id",
+        "original_context_sha1": hashlib.sha1(original_context.encode("utf-8")).hexdigest(),
+        "donors": donors_used,
+        "prompt_tokens_before_answer": int(len(prompt_ids)),
+        "target_prompt_tokens": LONG_CONTEXT_TARGET_PROMPT_TOKENS,
+    }
+    return sample
+
+
+def make_deterministic_passage_count_sample(sample, dataset, tokenizer, prompts, donor_pool):
+    ranked = rank_deterministic_donors(sample, donor_pool)
+    source_id = str(sample.get("_source_id", ""))
+    unique_count = 6 + stable_digest_int("count", source_id) % 5
+    components_per_unique = 4
+    selected = [
+        donor for _, donor in ranked[:unique_count * components_per_unique]
+    ]
+    if len(selected) != unique_count * components_per_unique:
+        raise RuntimeError(
+            f"Only {len(selected)} clean donors available for passage-count sample"
+        )
+    bundles = [
+        " ".join(
+            donor["text"]
+            for donor in selected[
+                index * components_per_unique:(index + 1) * components_per_unique
+            ]
+        )
+        for index in range(unique_count)
+    ]
+
+    order = [index % unique_count for index in range(30)]
+    random.Random(stable_digest_int("order", source_id)).shuffle(order)
+    transformed = dict(sample)
+    transformed.update({
+        "input": "",
+        "answers": [str(unique_count)],
+        "answer": str(unique_count),
+        "_prompt_task": "passage_count",
+        "_answer_type": "exact_count",
+        "_supporting_titles": [],
+        "_all_titles": [],
+        "_paragraph_hashes": sorted(donor["paragraph_hash"] for donor in selected),
+        "_long_context_generation": {
+            "method": "deterministic_synthetic_passage_count",
+            "unique_count": int(unique_count),
+            "paragraph_instances": 30,
+            "duplicate_order": order,
+            "donors": [
+                {
+                    "source_dataset": donor["source_dataset"],
+                    "source_id": donor["source_id"],
+                    "paragraph_index": donor["paragraph_index"],
+                    "paragraph_hash": donor["paragraph_hash"],
+                }
+                for donor in selected
+            ],
+            "target_prompt_tokens": LONG_CONTEXT_TARGET_PROMPT_TOKENS,
+        },
+    })
+
+    bundle_token_ids = [
+        tokenizer.encode(bundle, add_special_tokens=False) for bundle in bundles
+    ]
+
+    def context_at_cap(token_cap):
+        visible_bundles = [
+            tokenizer.decode(ids[:token_cap], skip_special_tokens=True)
+            for ids in bundle_token_ids
+        ]
+        return "\n\n".join(
+            f"Paragraph {position + 1}: {visible_bundles[bundle_index]}"
+            for position, bundle_index in enumerate(order)
+        ), visible_bundles
+
+    low, high = 16, max(len(ids) for ids in bundle_token_ids)
+    best_context, best_bundles = context_at_cap(low)
+    while low <= high:
+        mid = (low + high) // 2
+        candidate_context, candidate_bundles = context_at_cap(mid)
+        transformed["context"] = candidate_context
+        _, candidate_ids = render_calibration_prompt(
+            transformed, dataset, tokenizer, prompts
+        )
+        if len(candidate_ids) <= LONG_CONTEXT_TARGET_PROMPT_TOKENS:
+            best_context, best_bundles = candidate_context, candidate_bundles
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    transformed["context"] = best_context
+    transformed["_supporting_texts"] = best_bundles
+    _, prompt_ids = render_calibration_prompt(transformed, dataset, tokenizer, prompts)
+    transformed["_long_context_generation"]["prompt_tokens_before_answer"] = int(len(prompt_ids))
+    return transformed
+
+
+def generate_deterministic_long_context_calibration(chosen, tokenizer, prompts):
+    donor_pool = build_deterministic_donor_pool(chosen)
+    if len(donor_pool) < 100:
+        raise RuntimeError(f"Deterministic donor pool is unexpectedly small: {len(donor_pool)}")
+
+    generated = []
+    for task, sample_idx, sample in chosen:
+        if sample.get("_training_transform") == "passage_count":
+            sample = make_deterministic_passage_count_sample(
+                sample, task, tokenizer, prompts, donor_pool
+            )
+            task = "synthetic_passage_count_train"
+        else:
+            sample = fit_qa_sample_to_long_context(
+                sample, task, tokenizer, prompts, donor_pool
+            )
+        generated.append((task, sample_idx, sample))
+    return generated
+
+
 # %% colab={"base_uri": "https://localhost:8080/", "height": 381} id="Ij6JVcn0L5Hg" outputId="f2ac9135-04e5-40bc-a413-e67b6af7f97b"
 # =====================================================================================
 # PQ calibration-vector extraction from LongBench  --  single Colab cell
@@ -465,11 +740,14 @@ CALIBRATION_VARIANT_ALIASES = {
     "clean_suite_b": "clean_suite_b",
     "suite_b": "clean_suite_b",
     "variant_b": "clean_suite_b",
+    "clean_qa_count_c": "clean_qa_count_c",
+    "qa_count_c": "clean_qa_count_c",
+    "variant_c": "clean_qa_count_c",
 }
 if _calibration_variant_env not in CALIBRATION_VARIANT_ALIASES:
     raise ValueError(
         "PQ_CALIBRATION_VARIANT must be prior_held_out, clean_hotpot_a, "
-        "or clean_suite_b"
+        "clean_suite_b, or clean_qa_count_c"
     )
 CALIBRATION_VARIANT = CALIBRATION_VARIANT_ALIASES[_calibration_variant_env]
 if CALIBRATION_VARIANT != "prior_held_out" and CALIBRATION_MODE != "held_out":
@@ -661,6 +939,64 @@ CALIBRATION_VARIANT_SOURCES = {
             "prompt_task": "hotpotqa",
             "normalizer": "longbench_qa_proxy",
             "license": "LongBench dataset terms",
+        },
+    ],
+    "clean_qa_count_c": [
+        {
+            "name": "official_hotpotqa_long_train",
+            "family": "english_multihop_hotpot_long_4k",
+            "repo_id": "hotpotqa/hotpot_qa",
+            "config": "distractor",
+            "split": "train",
+            "documents": 240,
+            "prompt_task": "hotpotqa",
+            "normalizer": "hotpot",
+            "license": "HotpotQA dataset terms",
+        },
+        {
+            "name": "musique_long_train",
+            "family": "english_multihop_musique_long_4k",
+            "repo_id": "dgslibisey/MuSiQue",
+            "config": None,
+            "split": "train",
+            "documents": 160,
+            "prompt_task": "hotpotqa",
+            "normalizer": "musique",
+            "license": "MuSiQue dataset terms",
+        },
+        {
+            "name": "2wikimultihopqa_long_train",
+            "family": "english_multihop_2wiki_long_4k",
+            "repo_id": "framolfese/2WikiMultihopQA",
+            "config": None,
+            "split": "train",
+            "documents": 160,
+            "prompt_task": "2wikimqa",
+            "normalizer": "hotpot",
+            "license": "2WikiMultihopQA dataset terms",
+        },
+        {
+            "name": "narrativeqa_qasper_long_train",
+            "family": "english_single_document_qa_long_4k",
+            "repo_id": "deepmind/narrativeqa",
+            "config": None,
+            "split": "train",
+            "documents": 80,
+            "prompt_task": "qasper",
+            "normalizer": "narrativeqa",
+            "license": "NarrativeQA dataset terms",
+        },
+        {
+            "name": "synthetic_passage_count_train",
+            "family": "english_passage_count_long_4k",
+            "repo_id": "hotpotqa/hotpot_qa",
+            "config": "distractor",
+            "split": "train",
+            "documents": 160,
+            "prompt_task": "passage_count",
+            "normalizer": "hotpot",
+            "training_transform": "passage_count",
+            "license": "HotpotQA dataset terms",
         },
     ],
 }
@@ -1072,18 +1408,22 @@ def normalize_narrativeqa(row, spec, source_position):
 def normalize_variant_row(row, spec, source_position):
     normalizer = spec.get("normalizer", "hotpot")
     if normalizer == "musique":
-        return normalize_musique(row, spec, source_position)
-    if normalizer == "narrativeqa":
-        return normalize_narrativeqa(row, spec, source_position)
-    if normalizer == "longbench_qa_proxy":
+        sample = normalize_musique(row, spec, source_position)
+    elif normalizer == "narrativeqa":
+        sample = normalize_narrativeqa(row, spec, source_position)
+    elif normalizer == "longbench_qa_proxy":
         proxy = {
             "context": first_present(row, ["context", "document"], ""),
             "question": first_present(row, ["input", "question"], ""),
             "answers": first_present(row, ["answers", "answer"], ""),
             "id": first_present(row, ["_id", "id"], source_position),
         }
-        return normalize_hotpot_like(proxy, spec, source_position)
-    return normalize_hotpot_like(row, spec, source_position)
+        sample = normalize_hotpot_like(proxy, spec, source_position)
+    else:
+        sample = normalize_hotpot_like(row, spec, source_position)
+    if spec.get("training_transform"):
+        sample["_training_transform"] = spec["training_transform"]
+    return sample
 
 
 def decontamination_signatures(sample):
@@ -1260,12 +1600,12 @@ def allocate_per_task(pool_tasks, weights, total, availability):
     return alloc
 
 
-def select_calibration_samples():
+def select_calibration_samples(tokenizer=None, prompts=None):
     """Returns [(task, sample_index, sample)] honouring the contamination mode."""
     rng = random.Random(SEED)
 
     if CALIBRATION_VARIANT != "prior_held_out":
-        return select_variant_calibration_samples(rng)
+        return select_variant_calibration_samples(rng, tokenizer=tokenizer, prompts=prompts)
 
     if CALIBRATION_MODE == "held_out":
         pool_tasks = [t for t in CALIB_TASK_WEIGHTS if t not in EVAL_TASKS]
@@ -1331,7 +1671,7 @@ def validate_variant_source_mix(variant):
     return specs
 
 
-def select_variant_calibration_samples(rng):
+def select_variant_calibration_samples(rng, tokenizer=None, prompts=None):
     """Select clean official-training-split calibration rows for Variant A/B."""
     specs = validate_variant_source_mix(CALIBRATION_VARIANT)
     decon_index = build_longbench_e_decontamination_index()
@@ -1423,6 +1763,15 @@ def select_variant_calibration_samples(rng):
         })
 
     rng.shuffle(chosen)
+    if CALIBRATION_VARIANT == "clean_qa_count_c":
+        if tokenizer is None or prompts is None:
+            raise ValueError(
+                "clean_qa_count_c requires tokenizer and prompt templates for "
+                "deterministic 4K context construction"
+            )
+        chosen = generate_deterministic_long_context_calibration(
+            chosen, tokenizer, prompts
+        )
     select_variant_calibration_samples.last_report = {
         "variant": CALIBRATION_VARIANT,
         "longbench_e_revision": LONGBENCH_E_REVISION,
@@ -1435,6 +1784,17 @@ def select_variant_calibration_samples(rng):
             for reason in row.get("reasons", [])
         )),
         "near_duplicate_threshold": 0.82,
+        "long_context_generation": (
+            {
+                "method": "deterministic lexical donors and synthetic passage counting",
+                "min_prompt_tokens": LONG_CONTEXT_MIN_PROMPT_TOKENS,
+                "target_prompt_tokens": LONG_CONTEXT_TARGET_PROMPT_TOKENS,
+                "max_prompt_tokens": LONG_CONTEXT_MAX_PROMPT_TOKENS,
+                "manual_selection": False,
+                "model_based_ranking": False,
+            }
+            if CALIBRATION_VARIANT == "clean_qa_count_c" else None
+        ),
     }
     return chosen
 
@@ -1896,6 +2256,9 @@ def extract_shards(model, tokenizer, prompts, chosen):
                  source_revision=np.array(sample.get("_source_revision", "")),
                  source_license=np.array(sample.get("_source_license", "")),
                  answer_type=np.array(sample.get("_answer_type", "")),
+                 long_context_generation=np.array(json.dumps(
+                     sample.get("_long_context_generation", {}), sort_keys=True
+                 )),
                  decontamination_status=np.array(
                      (sample.get("_decontamination") or {}).get("status", "legacy")
                  ),
@@ -1977,8 +2340,11 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
                     "position_role": roles[local_idx],
                     "token_offset": token_offsets[local_idx],
                     "paragraph_title": titles[local_idx],
-                    "answer_type": str(z_scalar(z, "answer_type", "")),
-                    "decontamination_status": str(z_scalar(z, "decontamination_status", "legacy")),
+                "answer_type": str(z_scalar(z, "answer_type", "")),
+                "long_context_generation": json.loads(str(z_scalar(
+                    z, "long_context_generation", "{}"
+                ))),
+                "decontamination_status": str(z_scalar(z, "decontamination_status", "legacy")),
                     "document_ordinal": int(d),
                 })
             doc_rows.append({
@@ -1997,6 +2363,9 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
                 "slot_end": int(end),
                 "role_counts": dict(Counter(roles)),
                 "role_shortfalls": json.loads(str(z_scalar(z, "role_shortfalls", "{}"))),
+                "long_context_generation": json.loads(str(z_scalar(
+                    z, "long_context_generation", "{}"
+                ))),
             })
             cursor = end
 
@@ -2118,6 +2487,14 @@ def assemble_and_save(chosen, per_sample, output_dir, failed):
         "position_index_train": train_index_report,
         "position_index_test": test_index_report,
         "role_position_quotas": ROLE_POSITION_QUOTAS,
+        "prompt_length_summary": {
+            "minimum": int(min(row["prompt_tokens"] for row in doc_rows)),
+            "maximum": int(max(row["prompt_tokens"] for row in doc_rows)),
+            "mean": float(np.mean([row["prompt_tokens"] for row in doc_rows])),
+            "at_least_3900": int(sum(
+                row["prompt_tokens"] >= 3900 for row in doc_rows
+            )),
+        },
         "realized_role_counts_train": train_index_report["role_counts"],
         "realized_role_counts_test": test_index_report["role_counts"],
         "realized_source_counts_train": train_index_report["source_counts"],
@@ -2159,7 +2536,8 @@ if __name__ == "__main__":
 
     print("\nSelecting calibration documents")
     prompts = load_dataset2prompt()
-    chosen = select_calibration_samples()
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
+    chosen = select_calibration_samples(tokenizer=tokenizer, prompts=prompts)
     by_task = {}
     for task, _, _ in chosen:
         by_task[task] = by_task.get(task, 0) + 1
@@ -2184,7 +2562,6 @@ if __name__ == "__main__":
 
     model.to(device)
     gc.collect(); torch.cuda.empty_cache()
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
     print(f"  model on {device}, rotary cache = {MAX_INPUT_LENGTH + 64} positions")
 
     print("\nExtracting (resumable -- re-run this cell after a disconnect)")
@@ -3148,11 +3525,14 @@ TRAINING_VARIANT_ALIASES = {
     "clean_suite_b": "clean_suite_b",
     "suite_b": "clean_suite_b",
     "variant_b": "clean_suite_b",
+    "clean_qa_count_c": "clean_qa_count_c",
+    "qa_count_c": "clean_qa_count_c",
+    "variant_c": "clean_qa_count_c",
 }
 if _training_variant_env not in TRAINING_VARIANT_ALIASES:
     raise ValueError(
         "PQ_TRAINING_CALIBRATION_VARIANT must be prior_held_out, "
-        "clean_hotpot_a, or clean_suite_b"
+        "clean_hotpot_a, clean_suite_b, or clean_qa_count_c"
     )
 EXPECTED_CALIBRATION_VARIANT = TRAINING_VARIANT_ALIASES[_training_variant_env]
 if EXPECTED_CALIBRATION_VARIANT != "prior_held_out" and EXPECTED_CALIBRATION_MODE != "held_out":
@@ -6497,7 +6877,21 @@ LONG_BENCH_FULL_DATASETS = [
     "passage_retrieval_zh", "lcc", "repobench-p",
 ]
 
-if TEST_MODE:
+_dataset_override_env = os.environ.get("PQ_LONGBENCH_DATASETS", "").strip()
+if _dataset_override_env:
+    LONG_BENCH_DATASETS = [
+        dataset.strip() for dataset in _dataset_override_env.split(",")
+        if dataset.strip()
+    ]
+    unknown_datasets = sorted(set(LONG_BENCH_DATASETS) - set(LONG_BENCH_E_DATASETS))
+    if unknown_datasets:
+        raise ValueError(
+            "PQ_LONGBENCH_DATASETS contains datasets outside LongBench-E: "
+            f"{unknown_datasets}"
+        )
+    if len(set(LONG_BENCH_DATASETS)) != len(LONG_BENCH_DATASETS):
+        raise ValueError("PQ_LONGBENCH_DATASETS contains duplicates")
+elif TEST_MODE:
     LONG_BENCH_DATASETS = ["qasper", "hotpotqa", "passage_retrieval_en"]
 else:
     LONG_BENCH_DATASETS = LONG_BENCH_E_DATASETS if USE_LONG_BENCH_E else LONG_BENCH_FULL_DATASETS
@@ -6528,11 +6922,14 @@ EVAL_VARIANT_ALIASES = {
     "clean_suite_b": "clean_suite_b",
     "suite_b": "clean_suite_b",
     "variant_b": "clean_suite_b",
+    "clean_qa_count_c": "clean_qa_count_c",
+    "qa_count_c": "clean_qa_count_c",
+    "variant_c": "clean_qa_count_c",
 }
 if _eval_calibration_variant_env not in EVAL_VARIANT_ALIASES:
     raise ValueError(
         "PQ_LONGBENCH_CALIBRATION_VARIANT must be prior_held_out, "
-        "clean_hotpot_a, or clean_suite_b"
+        "clean_hotpot_a, clean_suite_b, or clean_qa_count_c"
     )
 EVAL_CALIBRATION_VARIANT = EVAL_VARIANT_ALIASES[_eval_calibration_variant_env]
 if EVAL_CALIBRATION_VARIANT != "prior_held_out" and EVAL_CALIBRATION_MODE != "held_out":

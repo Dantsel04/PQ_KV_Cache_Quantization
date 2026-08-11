@@ -69,7 +69,7 @@ Dependencies:
 - Requires the model download/setup section.
 - Its output is consumed by the first PQ codebook trainer.
 
-## Section 3: LongBench Calibration Vector Extraction
+## Section 3: Deterministic Long-Context Data and LongBench Calibration Extraction
 
 Cells: lines 403-1156
 
@@ -80,6 +80,10 @@ What it does:
   including Variant A `clean_hotpot_a`, with pinned training-source revisions,
   LongBench-E decontamination, role-aware token sampling, teacher-forced answer
   positions, and `position_index_{train,test}.jsonl` sidecars.
+- Adds a separate deterministic generation cell for `clean_qa_count_c`. It expands
+  clean QA prompts toward 4K tokens with lexically ranked training-only donor
+  paragraphs and constructs exact synthetic passage-count examples without manual
+  or model-based selection.
 - Builds prompts with the same template, chat-template, and 4096-token middle-truncation order as evaluation.
 - Captures post-`k_norm`, pre-RoPE key vectors and raw value vectors at sampled positions.
 - Writes one resumable shard per document, then assembles document-level train/test splits.
@@ -87,6 +91,10 @@ What it does:
 
 Important functions/classes:
 - LongBench data/prompt helpers: `ensure_longbench_data`, `load_longbench_task`, `load_dataset2prompt`, `build_prompt`, `allocate_per_task`, `select_calibration_samples`.
+- Deterministic generation helpers: `build_deterministic_donor_pool`,
+  `rank_deterministic_donors`, `fit_qa_sample_to_long_context`,
+  `make_deterministic_passage_count_sample`, and
+  `generate_deterministic_long_context_calibration`.
 - Custom model stack: `load_safetensors_pure`, `QwenRMSNorm`, `QwenRotaryEmbedding`, `QwenAttention`, `QwenMLP`, `QwenDecoderLayer`, `QwenModel`, `QwenForCausalLM`.
 - Sharding/output helpers: `shard_path`, `extract_shards`, `assemble_and_save`.
 
@@ -114,6 +122,10 @@ Dependencies:
 Command controls:
 - `PQ_CALIBRATION_MODE` selects held-out, matched, or contaminated extraction.
 - `PQ_CALIBRATION_VARIANT=clean_hotpot_a` selects the Hotpot-specialized clean Variant A output path.
+- `PQ_CALIBRATION_VARIANT=clean_qa_count_c` selects the deterministic long-context
+  QA/counting calibration path.
+- `PQ_LONGBENCH_DATASETS` accepts a comma-separated LongBench-E dataset subset for
+  paired smoke evaluation.
 - `PQ_LONGBENCH_TEST_SAMPLES_PER_DATASET` sizes diagnostic evaluation runs.
 - `PQ_LONGBENCH_RUN_TAG` isolates diagnostic output directories and CSV names.
 
