@@ -8,6 +8,23 @@ This repository contains a Jupytext-managed Google Colab workflow for Qwen3-8B
 KV-cache product quantization. `KV_Cache.py` is the editable source and
 `KV_Cache.ipynb` is the synced Colab artifact.
 
+- Deterministic long-context QA/count calibration Variant C was implemented and
+  pushed at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook
+  cell marker is `deterministic_long_context_calibration_generation`; it uses stable
+  lexical donor ranking with source-ID tie breaks and exact synthetic duplicate
+  construction, with no manual or model-based document selection.
+- Variant C uses 800 pinned, clean training examples: 240 HotpotQA, 160 MuSiQue,
+  160 2WikiMultihopQA, 80 NarrativeQA/Qasper-shaped, and 160 synthetic passage-count
+  examples. It targets 4K prompts while retaining the existing 40K vectors/head,
+  role-aware sampling, PQ configuration, and adaptive trainer budget.
+- Local verification passed: `py -m py_compile KV_Cache.py`, Jupytext sync,
+  `git diff --check`, unique bridge markers, and a deterministic helper harness that
+  verified repeat generation, exact count labels, and approximately 4K prompts.
+- Extraction command `pq-qa-count-c-extract-20260810-233059` was written atomically
+  to the Drive bridge after correcting an initial UTF-8 BOM. As of 2026-08-10 23:35
+  Pacific, the controller had not acknowledged it and `result.json` still contained
+  the old Scenario A result. No Variant C GPU stage can yet be claimed as started.
+
 - A HotpotQA-focused calibration-data audit is documented in `training_plan.md`.
   It identifies the current held-out pool's 45.7% Chinese-document share, limited
   English multi-hop coverage, and uniform 50-position sampling as priority data
@@ -114,6 +131,37 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   better than the original held-out codebooks on this locked Hotpot diagnostic,
   but it still does not advance because combined PQ remains `5.731346637538593`
   points below the uncompressed baseline on seed 0.
+- Scenario A A100 mini LongBench-E local/source controls were verified on
+  2026-08-09/2026-08-10 at commit `e2992b0`: `py -m py_compile KV_Cache.py`,
+  `py -m jupytext --sync KV_Cache.ipynb`, `git diff --check`, and bridge marker
+  uniqueness all passed. The notebook already supports all-13 LongBench-E mini
+  evaluation with `PQ_LONGBENCH_TEST_MODE=0`,
+  `PQ_LONGBENCH_MAX_SAMPLES_PER_DATASET=100`, deterministic random sampling with
+  seed `20260809`, `PQ_LONGBENCH_MAX_NEW_TOKENS=128`,
+  `PQ_LONGBENCH_EVAL_MODES=baseline,dynamic`,
+  `PQ_LONGBENCH_CALIBRATION_MODE=held_out`,
+  `PQ_LONGBENCH_CALIBRATION_VARIANT=clean_hotpot_a`, and run tag
+  `scenario_a_a100_100x128_bd`.
+- A stale Scenario A eval command
+  `pq-scenario-a-a100-mini-100x128-bd-20260809-e2992b0` was ignored by the Colab
+  controller after restart. Retry
+  `pq-scenario-a-a100-mini-100x128-bd-rerun-20260809-163056` returned code 1 only
+  after confirming `NVIDIA A100-SXM4-80GB`, stopping before evaluation because the
+  fresh runtime lacked `/content/qwen3_8B/config.json` and the Drive model backup.
+  Model setup command `pq-a100-model-setup-20260809-163246` then returned code 0,
+  confirmed the same A100, and downloaded `Qwen/Qwen3-8B` with `config.json`,
+  tokenizer files, and five safetensor shards under `/content/qwen3_8B`.
+- Scenario A eval command
+  `pq-scenario-a-a100-mini-100x128-bd-eval-20260809-163944` returned code 0.
+  It confirmed `NVIDIA A100-SXM4-80GB` and completed in
+  `39530.790924315` seconds (`10.980775256754166` hours). Independent artifact
+  audit verified 13 LongBench-E datasets, 100 deterministic random examples per
+  dataset, seed `20260809`, 1,300 baseline and 1,300 dynamic records, matching
+  sample IDs across modes, no short datasets, no static-mode outputs, Variant A
+  `clean_hotpot_a` held-out codebook provenance, and aggregate/per-dataset CSV
+  reconciliation against the prediction JSONL files. Dataset-average scores were
+  baseline `47.65967494764164`, dynamic `44.349905555086025`, dynamic minus
+  baseline `-3.3097693925556158`.
 
 - Published larger-diagnostic-controls checkpoint: `4c94213` on `main`.
 - `py -m py_compile KV_Cache.py`: passed.
@@ -253,6 +301,9 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 | `pq-contaminated-smoke-37bbd549507d41049768e41d6bb4be22` | Contaminated-codebook smoke execution | 0 | Ran baseline/dynamic/static on two samples from each of qasper, hotpotqa, and passage_retrieval_en. |
 | `pq-contaminated-smoke-audit-f3624950a53b4b33bfa0d94ed59580fd` | Contaminated smoke audit | 0 | Reconciled 18 predictions and all summaries; baseline 77.78, dynamic 83.33, static 80.00. |
 | `pq-post-disconnect-artifact-preflight-7607f43198df41a58cc45bd2de614a8c` | Post-disconnect persistence preflight | 0 | Confirmed model and complete held-out/contaminated calibration/codebook/mask artifacts survived. |
+| `pq-scenario-a-a100-mini-100x128-bd-rerun-20260809-163056` | Scenario A A100 mini attempt pre-model | 1 | Confirmed `NVIDIA A100-SXM4-80GB`, then stopped before evaluation because `/content/qwen3_8B/config.json` and Drive model backup were missing. |
+| `pq-a100-model-setup-20260809-163246` | A100 model setup | 0 | Confirmed `NVIDIA A100-SXM4-80GB` and downloaded Qwen3-8B config/tokenizer plus five safetensor shards under `/content/qwen3_8B`. |
+| `pq-scenario-a-a100-mini-100x128-bd-eval-20260809-163944` | Scenario A A100 100x128 baseline/dynamic mini eval | 0 | Confirmed A100 and reconciled all 2,600 prediction records. Baseline dataset avg `47.65967494764164`; dynamic `44.349905555086025`; delta `-3.3097693925556158`; no static mode was run. |
 
 ## Implemented LongBench-E Configuration
 

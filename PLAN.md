@@ -2,9 +2,15 @@
 
 ## Active Milestone
 
-Implement and validate two clean PQ calibration-data variants plus adaptive
-per-group training-vector allocation, with the goal of improving HotpotQA first and
-then improving the broader LongBench-E suite without evaluation contamination.
+Extract, train, and evaluate deterministic long-context QA/count Variant C. The
+immediate gate is a paired smoke run on Qasper, MultiFieldQA-English, HotpotQA,
+2WikiMQA, and passage counting; a good smoke result advances to the same 13-dataset
+100-sample A100 mini evaluation used for Variant A.
+
+Current command gate: extraction command
+`pq-qa-count-c-extract-20260810-233059` is present in the Drive bridge but has not
+yet been acknowledged by the Colab controller. Do not start training until its exact
+matching code-0 result and an independent artifact audit are available.
 
 The detailed data rationale and proposed mixtures are in `training_plan.md`. The
 prior held-out/contaminated smoke milestone is archived in `STATUS.md` and
@@ -258,13 +264,22 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant A seed-0 Hotpot gate diagnosed
-- Active command ID: none
+- Stage: Variant C deterministic long-context extraction awaiting controller pickup
+- Active command ID: `pq-qa-count-c-extract-20260810-233059`
 - Colab bridge: `G:\My Drive\PQ_agent`
-- Last pushed implementation commit: `7c992ee`
-- Next action: decide whether to prototype a key-side precision/compression fix for
-  Variant A before running more calibration seeds. The seed-0 result is promising
-  relative to held-out codebooks but fails the five-point advancement gate.
+- Last pushed implementation commit: `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`
+- Current checkpoint: command
+  `pq-scenario-a-a100-mini-100x128-bd-eval-20260809-163944` returned code 0 on
+  `NVIDIA A100-SXM4-80GB` after `39530.790924315` seconds. The audited run used
+  all 13 LongBench-E datasets, 100 deterministic random samples per dataset,
+  seed `20260809`, max new tokens 128, baseline plus dynamic only, held-out
+  `clean_hotpot_a` Variant A codebooks, and run tag
+  `scenario_a_a100_100x128_bd`. Verified dataset-average scores were baseline
+  `47.65967494764164`, dynamic `44.349905555086025`, delta
+  `-3.3097693925556158`.
+- Next action: restart or confirm the Colab bridge controller so it acknowledges the
+  active extraction ID. After an exact code-0 result, independently audit Variant C
+  before submitting codebook training.
 
 ## Completion Criteria
 

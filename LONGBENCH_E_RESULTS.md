@@ -12,6 +12,47 @@ aggregate benchmark score and must not be inferred from the smoke results. The l
 full attempt, `pq-longbench-e-full-13d26f49dd214c84bf8f6b46d6f46d20`, returned
 code 130 after a user interruption at baseline qasper 64/224.
 
+A later Scenario A / Variant A A100 mini run used the clean `clean_hotpot_a`
+held-out codebooks, all 13 LongBench-E datasets, 100 deterministic random samples
+per dataset, seed `20260809`, a 128-token generation cap, and baseline plus
+dynamic modes only. Eval command
+`pq-scenario-a-a100-mini-100x128-bd-eval-20260809-163944` returned code 0 on
+`NVIDIA A100-SXM4-80GB` after `39530.790924315` seconds. Independent artifact
+audit reconciled 1,300 baseline and 1,300 dynamic prediction records with the
+sample manifest, summary CSV, comparison CSV, and aggregate CSV; no static mode
+outputs were produced.
+
+### Scenario A A100 mini result
+
+| Metric | Baseline | Dynamic PQ | Dynamic minus baseline |
+|---|---:|---:|---:|
+| Dataset average | 47.65967494764164 | 44.349905555086025 | -3.3097693925556158 |
+| Sample weighted | 47.65967494764164 | 44.349905555086025 | -3.3097693925556158 |
+
+Per-dataset results:
+
+| Dataset | Baseline | Dynamic PQ | Delta |
+|---|---:|---:|---:|
+| qasper | 35.14161725131099 | 30.50865982515678 | -4.63295742615421 |
+| multifieldqa_en | 46.54651948400876 | 42.95391510560119 | -3.5926043784075716 |
+| hotpotqa | 55.34305080884028 | 47.817515355015345 | -7.525535453824936 |
+| 2wikimqa | 34.331428571428575 | 30.82907268170426 | -3.5023558897243134 |
+| gov_report | 19.82597819300822 | 19.87307478923543 | +0.04709659622721318 |
+| multi_news | 18.580842268952967 | 18.645302373440863 | +0.06446010448789607 |
+| trec | 71.0 | 70.0 | -1.0 |
+| triviaqa | 90.9 | 88.9 | -2.0 |
+| samsum | 41.056337741791566 | 41.11123208596446 | +0.05489434417289374 |
+| passage_count | 18.0 | 2.0 | -16.0 |
+| passage_retrieval_en | 62.0 | 60.0 | -2.0 |
+| lcc | 70.33 | 68.74 | -1.5900000000000034 |
+| repobench-p | 56.52 | 55.17 | -1.3500000000000014 |
+
+Under the expected roughly +/-1.5 to 4 point mini-benchmark aggregate error, the
+`-3.3097693925556158` aggregate delta is not a clear pass. It is ambiguous on
+aggregate uncertainty alone, but the direction is negative and the largest
+regressions on HotpotQA and passage counting make the diagnostic lean bad for
+advancing this exact Variant A key/value PQ setting.
+
 ## Verified Configuration
 
 - Model: Qwen3-8B on an NVIDIA L4.
