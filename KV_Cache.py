@@ -528,10 +528,17 @@ def fit_qa_sample_to_long_context(sample, dataset, tokenizer, prompts, donor_poo
             "lexical_score": score,
         })
 
+    final_prompt, prompt_ids = render_calibration_prompt(
+        sample, dataset, tokenizer, prompts
+    )
     sample["_paragraph_hashes"] = sorted(existing_hashes)
     sample["_long_context_generation"] = {
         "method": "stable_lexical_overlap_then_source_id",
         "original_context_sha1": hashlib.sha1(original_context.encode("utf-8")).hexdigest(),
+        "generated_context_sha1": hashlib.sha1(
+            sample["context"].encode("utf-8")
+        ).hexdigest(),
+        "generated_prompt_sha1": hashlib.sha1(final_prompt.encode("utf-8")).hexdigest(),
         "donors": donors_used,
         "prompt_tokens_before_answer": int(len(prompt_ids)),
         "target_prompt_tokens": LONG_CONTEXT_TARGET_PROMPT_TOKENS,
@@ -622,7 +629,15 @@ def make_deterministic_passage_count_sample(sample, dataset, tokenizer, prompts,
 
     transformed["context"] = best_context
     transformed["_supporting_texts"] = best_bundles
-    _, prompt_ids = render_calibration_prompt(transformed, dataset, tokenizer, prompts)
+    final_prompt, prompt_ids = render_calibration_prompt(
+        transformed, dataset, tokenizer, prompts
+    )
+    transformed["_long_context_generation"]["generated_context_sha1"] = hashlib.sha1(
+        transformed["context"].encode("utf-8")
+    ).hexdigest()
+    transformed["_long_context_generation"]["generated_prompt_sha1"] = hashlib.sha1(
+        final_prompt.encode("utf-8")
+    ).hexdigest()
     transformed["_long_context_generation"]["prompt_tokens_before_answer"] = int(len(prompt_ids))
     return transformed
 
