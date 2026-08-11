@@ -7,12 +7,11 @@ immediate gate is a paired smoke run on Qasper, MultiFieldQA-English, HotpotQA,
 2WikiMQA, and passage counting; a good smoke result advances to the same 13-dataset
 100-sample A100 mini evaluation used for Variant A.
 
-Current command gate: extraction retry
-`pq-qa-count-c-extract-r5-20260811-001100` was accepted by the restarted controller
-at 2026-08-11 00:09 Pacific and is running commit `ab610b6`. The bridge has no exact
-terminal result yet. The controller deliberately leaves the previous result in place
-until the active child exits. Do not restart the controller or start training until
-the exact `r5` result returns code 0 and an independent artifact audit passes.
+Current command gate: codebook training
+`pq-qa-count-c-train-r1-20260811-003240` was submitted after extraction `r5` and its
+independent artifact audit both returned code 0. Do not restart the controller or
+start the smoke evaluation until the exact training result returns code 0 and the
+independent codebook audit passes.
 
 The detailed data rationale and proposed mixtures are in `training_plan.md`. The
 prior held-out/contaminated smoke milestone is archived in `STATUS.md` and
@@ -153,7 +152,7 @@ cluster, not just by prompt row.
   answer to reportable training.
 - [x] Save role/source sidecars with every resumable shard.
 - [x] Assemble train/test arrays while retaining role-aware indices.
-- [ ] Audit document separation, role totals, source totals, prompt lengths, and zero
+- [x] Audit document separation, role totals, source totals, prompt lengths, and zero
   LongBench-E overlap before training.
 
 ### Phase 3 — adaptive group training budget
@@ -174,7 +173,7 @@ cluster, not just by prompt row.
 - [x] Run `py -m jupytext --sync KV_Cache.ipynb`.
 - [x] Run `git diff --check`.
 - [x] Verify notebook source markers used by the Colab bridge remain unique.
-- [ ] Review generated configuration and manifests without running the local CPU
+- [x] Review generated configuration and manifests without running the local CPU
   pipeline as a substitute for Colab GPU validation.
 
 ### Phase 5 — Variant A extraction and training

@@ -29,12 +29,20 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   paragraphs rendered as `Title: body` were compared against body-only provenance
   hashes, yielding an empty donor pool. Commit `ab610b6` fixes that mismatch without
   weakening provenance validation.
-- Extraction retry `pq-qa-count-c-extract-r5-20260811-001100` was accepted by the
-  restarted controller at 2026-08-11 00:09 Pacific on the A100 and checks out
-  `ab610b6`. As of 00:24, it had no matching terminal bridge result; the prior `r4`
-  result remains visible because the controller writes `result.json` only after its
-  child exits. Do not start training until `r5` returns code 0 and the independent
-  extraction audit passes.
+- Extraction retry `pq-qa-count-c-extract-r5-20260811-001100` returned code 0 on an
+  NVIDIA A100 at commit `ab610b6` in `1094.5512245959999` seconds. It generated all
+  800 prompts at 3,901--4,096 tokens (mean `4017.91875`), including 160 exact
+  synthetic passage-count examples, extracted 36,000 train and 4,000 test vectors
+  per head, and copied the calibration tree to Drive.
+- Independent extraction audit
+  `pq-qa-count-c-extract-audit-r5-20260811-003120` returned code 0. It verified the
+  exact 240/160/160/80/160 source mix, all 8,568 donor references, all 160 exact
+  counting constructions, document-disjoint train/test metadata, all five position
+  roles in both splits, all 1,152 finite K/V arrays, and matching Drive artifacts.
+- Codebook training command `pq-qa-count-c-train-r1-20260811-003240` was accepted by
+  the controller after the extraction audit passed. Its exact terminal result is
+  pending. Do not begin the smoke evaluation until training returns code 0 and the
+  independent codebook audit passes.
 
 - A HotpotQA-focused calibration-data audit is documented in `training_plan.md`.
   It identifies the current held-out pool's 45.7% Chinese-document share, limited
