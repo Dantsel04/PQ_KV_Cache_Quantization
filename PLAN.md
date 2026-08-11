@@ -155,7 +155,7 @@ cluster, not just by prompt row.
 - [x] Complete local syntax, Jupytext, deterministic-generation, quota, range, and
   bridge-marker gates.
 - [x] Commit and push the initial implementation and prompt-length-floor correction.
-- [ ] Extract Variant D and independently audit every local and Drive artifact.
+- [x] Extract Variant D and independently audit every local and Drive artifact.
 - [ ] Train isolated Variant D K/V codebooks and independently audit maps, groups,
   budgets, tables, LUTs, masks, reconstruction metrics, and Drive copies.
 - [ ] Run and audit the paired Scenario A passage-count evaluation.

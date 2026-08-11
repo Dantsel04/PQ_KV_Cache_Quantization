@@ -41,6 +41,17 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   critical-role weights within the 22-position key budget (6 boundaries, 5 anchors,
   8 repeated spans, 2 suffix tokens, and 1 decode transition) and refuses to finish
   extraction unless all six explicit roles occur in both splits and tensor sides.
+- Clean extraction retry `pq-count-key-d-extract-r3-20260811-095202` returned code 0
+  on an A100 at commit `6e86f53b202c213d0b802c93236066b07b3efea3` in
+  `1244.0775129879985` seconds. It produced all 800 prompts at 3,901--4,096
+  tokens, 36,000 train and 4,000 test vectors per head, all six roles on both
+  tensor sides and splits, and the exact 44% key count-critical share.
+  Independent audit `pq-count-key-d-extract-audit-r3-20260811-101547` returned
+  code 0. It verified the exact 240/160/160/80/160 task mixture, 32,992 clean donor
+  references, all 160 deterministic count examples and answers 2--30, all 1,152
+  finite arrays, position-index provenance, prompt bounds, and matching Drive
+  artifacts. Training command `pq-count-key-d-train-r1-20260811-102031` was then
+  launched; its result is pending and no later stage is authorized yet.
 
 - Deterministic long-context QA/count calibration Variant C was implemented and
   pushed beginning at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook
