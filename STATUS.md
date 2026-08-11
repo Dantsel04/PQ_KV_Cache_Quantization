@@ -20,10 +20,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 - Local verification passed: `py -m py_compile KV_Cache.py`, Jupytext sync,
   `git diff --check`, unique bridge markers, and a deterministic helper harness that
   verified repeat generation, exact count labels, and approximately 4K prompts.
-- Extraction command `pq-qa-count-c-extract-20260810-233059` was written atomically
-  to the Drive bridge after correcting an initial UTF-8 BOM. As of 2026-08-10 23:35
-  Pacific, the controller had not acknowledged it and `result.json` still contained
-  the old Scenario A result. No Variant C GPU stage can yet be claimed as started.
+- Extraction retry command `pq-qa-count-c-extract-r2-20260811-000100` was written
+  atomically to the Drive bridge using BOM-free UTF-8. Across three consecutive goal
+  turns, the controller readiness timestamp remained
+  `2026-08-11T06:12:22.825093+00:00` and `result.json` remained the old Scenario A
+  result. A hidden local handoff watcher is waiting for a new readiness timestamp;
+  after the controller restarts, it will submit a fresh command ID automatically and
+  save only the exact matching result. No Variant C GPU stage has started.
 
 - A HotpotQA-focused calibration-data audit is documented in `training_plan.md`.
   It identifies the current held-out pool's 45.7% Chinese-document share, limited

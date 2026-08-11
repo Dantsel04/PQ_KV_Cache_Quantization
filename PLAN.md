@@ -7,10 +7,12 @@ immediate gate is a paired smoke run on Qasper, MultiFieldQA-English, HotpotQA,
 2WikiMQA, and passage counting; a good smoke result advances to the same 13-dataset
 100-sample A100 mini evaluation used for Variant A.
 
-Current command gate: extraction command
-`pq-qa-count-c-extract-20260810-233059` is present in the Drive bridge but has not
-yet been acknowledged by the Colab controller. Do not start training until its exact
-matching code-0 result and an independent artifact audit are available.
+Current command gate: extraction retry
+`pq-qa-count-c-extract-r2-20260811-000100` is present in the Drive bridge but has not
+been acknowledged. The unchanged controller readiness timestamp has now repeated for
+three consecutive goal turns. A local handoff watcher will submit a fresh extraction
+ID after the controller cell restarts. Do not start training until that exact result
+returns code 0 and an independent artifact audit passes.
 
 The detailed data rationale and proposed mixtures are in `training_plan.md`. The
 prior held-out/contaminated smoke milestone is archived in `STATUS.md` and
@@ -264,10 +266,10 @@ cache, reconstruction report, and static masks.
 
 ## Active Command
 
-- Stage: Variant C deterministic long-context extraction awaiting controller pickup
-- Active command ID: `pq-qa-count-c-extract-20260810-233059`
+- Stage: blocked pending Colab controller restart
+- Active command ID: `pq-qa-count-c-extract-r2-20260811-000100` (not acknowledged)
 - Colab bridge: `G:\My Drive\PQ_agent`
-- Last pushed implementation commit: `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`
+- Last pushed implementation commit: `18ae890d9b19f386a39734d0d48f4bcce846fb2c`
 - Current checkpoint: command
   `pq-scenario-a-a100-mini-100x128-bd-eval-20260809-163944` returned code 0 on
   `NVIDIA A100-SXM4-80GB` after `39530.790924315` seconds. The audited run used
@@ -277,9 +279,9 @@ cache, reconstruction report, and static masks.
   `scenario_a_a100_100x128_bd`. Verified dataset-average scores were baseline
   `47.65967494764164`, dynamic `44.349905555086025`, delta
   `-3.3097693925556158`.
-- Next action: restart or confirm the Colab bridge controller so it acknowledges the
-  active extraction ID. After an exact code-0 result, independently audit Variant C
-  before submitting codebook training.
+- Next action: rerun the Colab bridge controller cell. The local handoff watcher will
+  submit a fresh extraction ID after the new readiness timestamp appears. After an
+  exact code-0 result, independently audit Variant C before codebook training.
 
 ## Completion Criteria
 
