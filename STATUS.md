@@ -56,8 +56,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   prior extraction-audit ID and no Variant D codebook tree existed on Drive, so r1
   is recorded as interrupted with no return code—not as success or failure. The
   audited calibration tree remained intact. Clean retry
-  `pq-count-key-d-train-r2-20260811-200442` is active; no later stage is authorized
-  until its exact-ID/code-0 result and independent codebook audit both pass.
+  `pq-count-key-d-train-r2-20260811-200442` was then submitted.
+- The restarted controller wrote `controller_ready.json` with
+  `ignored_existing_id=pq-count-key-d-train-r2-20260811-200442`, proving r2 was
+  intentionally ignored at startup and never became a GPU attempt. After additional
+  compute units were made available, fresh command
+  `pq-count-key-d-train-r3-20260811-201105` was submitted. It is the active training
+  attempt; no later stage is authorized until its matching result and audit pass.
 
 - Deterministic long-context QA/count calibration Variant C was implemented and
   pushed beginning at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook
