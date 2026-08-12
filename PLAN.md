@@ -158,14 +158,14 @@ cluster, not just by prompt row.
   bridge-marker gates.
 - [x] Commit and push the initial implementation and prompt-length-floor correction.
 - [x] Extract Variant D and independently audit every local and Drive artifact.
-- [ ] Train isolated Variant D K/V codebooks and independently audit maps, groups,
+- [x] Train isolated Variant D K/V codebooks and independently audit maps, groups,
   budgets, tables, LUTs, masks, reconstruction metrics, and Drive copies.
-- [ ] Run and audit the paired 20-example Scenario A-subset passage-count check.
-- [ ] Run and audit the targeted 100-example baseline/dynamic evaluation on HotpotQA,
+- [x] Run and audit the paired 20-example Scenario A-subset passage-count check.
+- [x] Run and audit the targeted 100-example baseline/dynamic evaluation on HotpotQA,
   RepoBench-P, GovReport, and Qasper.
 - [x] Cancel the former five-dataset four-mode smoke and 13-dataset mini for Variant D
   at the user's request; do not spend that GPU time.
-- [ ] Record exact command IDs, return codes, scores, artifacts, and final decision
+- [x] Record exact command IDs, return codes, scores, artifacts, and current decision
   in `STATUS.md`, this plan, and `LONGBENCH_E_RESULTS.md`.
 
 ### Phase 1 — configuration and provenance

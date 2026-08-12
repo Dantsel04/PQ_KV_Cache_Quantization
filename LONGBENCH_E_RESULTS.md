@@ -1,5 +1,59 @@
 # LongBench-E PQ Training and Evaluation Results
 
+## Variant D Key-Side Counting Calibration Result
+
+Variant D preserved Variant C's 800-document clean mixture and all model,
+compression, codebook-capacity, and evaluation settings. It changed only the
+deterministic synthetic count construction and side-specific calibration-vector
+selection, realizing an audited 44% count-critical key share. Extraction, codebook
+training, and their exhaustive audits returned code 0.
+
+Reconstruction results:
+
+| Side | PQ NMSE | NMSE with 3 preserved outliers |
+|---|---:|---:|
+| Keys | 0.0035743668248075927 | 0.0032615700334262384 |
+| Values | 0.01985270412498231 | 0.0192994723730238 |
+
+At the user's request, evaluation was shortened. A paired 20-example deterministic
+subset of the prior Scenario A passage-count sample scored baseline `5.0`, Variant A
+dynamic `0.0`, Variant C dynamic `0.0`, and Variant D dynamic `5.0`. This is 100%
+retention and +5 points over Variant C, but represents only one correct example and
+is directional rather than a reliable count-quality estimate.
+
+The audited targeted 100-example-per-dataset baseline/dynamic result was:
+
+| Dataset | Baseline | Variant D dynamic | Delta | Variant A dynamic | D minus A |
+|---|---:|---:|---:|---:|---:|
+| HotpotQA | 55.343050808840275 | 49.1991822991823 | -6.143868509657975 | 47.81751535501536 | +1.3816669441669376 |
+| RepoBench-P | 56.52 | 54.47 | -2.05 | 55.169999999999995 | -0.6999999999999957 |
+| GovReport | 19.82597819300822 | 19.928210311601248 | +0.102232118593028 | 19.87307478923544 | +0.05513552236580921 |
+| Qasper | 35.14161725131099 | 31.293124262967982 | -3.848492988343008 | 30.508659825156776 | +0.7844644378112058 |
+| **Dataset average** | **41.707661563289875** | **38.72262921843788** | **-2.9850323448519944** | **38.342312492351894** | **+0.38031672608598655** |
+
+Variant D modestly improves over Variant A on this paired four-dataset average and
+does not collapse the small count subset, but it still loses 7.16% of baseline on
+average and regresses HotpotQA materially. It is not strong enough to justify the
+cancelled 13-dataset suite. A deterministic 4K needle-in-a-haystack diagnostic is a
+possible inexpensive next step; it would diagnose positional retrieval without new
+codebook training.
+
+Evidence:
+
+| Stage | Command ID | Return code |
+|---|---|---:|
+| Clean extraction | `pq-count-key-d-extract-r3-20260811-095202` | 0 |
+| Extraction audit | `pq-count-key-d-extract-audit-r3-20260811-101547` | 0 |
+| Codebook training | `pq-count-key-d-train-r3-20260811-201105` | 0 |
+| Codebook audit | `pq-count-key-d-codebook-audit-r1-20260812-050952` | 0 |
+| Passage setup attempt 1 | `pq-count-key-d-passage20-r1-20260812-051119` | 1 |
+| Passage setup attempt 2 | `pq-count-key-d-passage20-r2-20260812-051307` | 1 |
+| Passage setup attempt 3 | `pq-count-key-d-passage20-r3-20260812-051525` | 1 |
+| Paired 20-example passage check | `pq-count-key-d-passage20-r4-20260812-052118` | 0 |
+| Passage audit | `pq-count-key-d-passage20-audit-r1-20260812-053657` | 0 |
+| Four-dataset targeted evaluation | `pq-count-key-d-targeted4-r1-20260812-053849` | 0 |
+| Targeted evaluation audit | `pq-count-key-d-targeted4-audit-r1-20260812-090018` | 0 |
+
 ## Variant C QA/Counting Calibration Result
 
 Variant C used 800 deterministic clean 4K prompts: 240 HotpotQA, 160 MuSiQue,

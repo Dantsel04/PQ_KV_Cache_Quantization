@@ -17,9 +17,9 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
 - Variant D performs no hard-example selection, manual document selection, or
   model-generated ranking. Its manifest records qualified source IDs, the extraction
   seed, generated prompt hashes, answer distribution, side-specific role counts,
-  and pinned LongBench-E decontamination evidence. GPU extraction, training, and
-  evaluation have not yet been claimed; each remains behind an exact-ID/code-0
-  bridge result and independent artifact audit.
+  and pinned LongBench-E decontamination evidence. Extraction, training, and the
+  shortened evaluation are complete with exact-ID/code-0 results and independent
+  audits as detailed below.
 - Variant D extraction `pq-count-key-d-extract-r1-20260811-085510` returned code 0
   on an A100 at commit `166e977` in `1177.9181083500007` seconds, with 800/800
   shards, 36,000 train and 4,000 test vectors per head, zero failed documents, and
@@ -61,8 +61,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   `ignored_existing_id=pq-count-key-d-train-r2-20260811-200442`, proving r2 was
   intentionally ignored at startup and never became a GPU attempt. After additional
   compute units were made available, fresh command
-  `pq-count-key-d-train-r3-20260811-201105` was submitted. It is the active training
-  attempt; no later stage is authorized until its matching result and audit pass.
+  `pq-count-key-d-train-r3-20260811-201105` returned code 0 at commit `6e86f53` on
+  an A100 after `30256.951303826` seconds. Key NMSE was
+  `0.0035743668248075927` (`0.0032615700334262384` with three outliers); value NMSE
+  was `0.01985270412498231` (`0.0192994723730238` with three outliers). Independent
+  audit `pq-count-key-d-codebook-audit-r1-20260812-050952` returned code 0 and
+  verified 64 groups and 288 heads per side, all 12,288 codebook files per side,
+  adaptive budgets and strata, 576 masks, and all 24,583 local/Drive files.
 - On 2026-08-12 the user shortened the post-training evaluation. After a successful
   codebook audit, run a paired 20-example `passage_count` check using a deterministic
   subset of the prior Scenario A/Variant C IDs, then baseline/dynamic 100-example
@@ -71,6 +76,28 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   Local exact-result alarm watchers raise Windows master volume, keep the machine
   awake, and sound for two minutes when codebook training and the final targeted
   evaluation finish.
+- Passage-count setup commands `pq-count-key-d-passage20-r1-20260812-051119`,
+  `pq-count-key-d-passage20-r2-20260812-051307`, and
+  `pq-count-key-d-passage20-r3-20260812-051525` returned code 1 before prediction
+  due, respectively, to missing local model weights, no Drive model backup, and a
+  stale empty output directory from r1. The wrapper now uses the established
+  Qwen3-8B download fallback and a fresh isolated run tag. Successful command
+  `pq-count-key-d-passage20-r4-20260812-052118` returned code 0 in
+  `390.4144181060037` seconds; audit
+  `pq-count-key-d-passage20-audit-r1-20260812-053657` returned code 0. On the exact
+  20-ID prior subset, baseline was `5.0`, Variant A and C dynamic were `0.0`, and
+  Variant D dynamic was `5.0` (100% retention and +5 points over C), but this is only
+  one correct example and remains directional.
+- Targeted command `pq-count-key-d-targeted4-r1-20260812-053849` returned code 0 in
+  `11479.377215574998` seconds. Audit
+  `pq-count-key-d-targeted4-audit-r1-20260812-090018` returned code 0 and reconciled
+  all 800 predictions plus exact Scenario A source IDs. Baseline/dynamic scores were:
+  HotpotQA `55.343050808840275/49.1991822991823`, RepoBench-P `56.52/54.47`,
+  GovReport `19.82597819300822/19.928210311601248`, and Qasper
+  `35.14161725131099/31.293124262967982`. Dataset average was
+  `41.707661563289875/38.72262921843788` (delta `-2.9850323448519944`, 92.84%
+  retention). Variant D dynamic was `+0.38031672608598655` above Variant A across
+  these paired datasets, but it did not close the baseline gap.
 
 - Deterministic long-context QA/count calibration Variant C was implemented and
   pushed beginning at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook
