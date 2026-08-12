@@ -51,7 +51,13 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   references, all 160 deterministic count examples and answers 2--30, all 1,152
   finite arrays, position-index provenance, prompt bounds, and matching Drive
   artifacts. Training command `pq-count-key-d-train-r1-20260811-102031` was then
-  launched; its result is pending and no later stage is authorized yet.
+  launched, but the Colab runtime disconnected and never published a matching
+  terminal result. After more than nine hours, `result.json` still contained the
+  prior extraction-audit ID and no Variant D codebook tree existed on Drive, so r1
+  is recorded as interrupted with no return code—not as success or failure. The
+  audited calibration tree remained intact. Clean retry
+  `pq-count-key-d-train-r2-20260811-200442` is active; no later stage is authorized
+  until its exact-ID/code-0 result and independent codebook audit both pass.
 
 - Deterministic long-context QA/count calibration Variant C was implemented and
   pushed beginning at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook
