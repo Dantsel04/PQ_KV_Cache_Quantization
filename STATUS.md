@@ -63,6 +63,14 @@ KV-cache product quantization. `KV_Cache.py` is the editable source and
   compute units were made available, fresh command
   `pq-count-key-d-train-r3-20260811-201105` was submitted. It is the active training
   attempt; no later stage is authorized until its matching result and audit pass.
+- On 2026-08-12 the user shortened the post-training evaluation. After a successful
+  codebook audit, run a paired 20-example `passage_count` check using a deterministic
+  subset of the prior Scenario A/Variant C IDs, then baseline/dynamic 100-example
+  runs on `hotpotqa`, `repobench-p`, `gov_report`, and `qasper`. The former
+  five-dataset four-mode smoke and 13-dataset mini are cancelled for this candidate.
+  Local exact-result alarm watchers raise Windows master volume, keep the machine
+  awake, and sound for two minutes when codebook training and the final targeted
+  evaluation finish.
 
 - Deterministic long-context QA/count calibration Variant C was implemented and
   pushed beginning at commit `cf6cf9e24d5db27da4a0b6aa7456ad0ce6bcd408`. The new notebook

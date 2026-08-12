@@ -15,11 +15,13 @@ prior baseline `18.0` and scored only `2.6666666666666665` with Variant C dynami
 versus Variant A's `2.0`. This failed the five-point-improvement and 50%-retention
 gates, so the conditional 13-dataset mini evaluation was not launched.
 
-Variant D first runs the exact paired Scenario A 100-example passage-count sample.
-It advances only if combined dynamic PQ scores at least `7.666666666666666` (five
-absolute points above Variant C) and at least `9.0` (50% of baseline), so the binding
-threshold is `9.0`. Only a passing result advances to the five-dataset four-mode
-smoke; the 13-dataset A100 mini remains conditional on both counting and QA smoke.
+The evaluation scope was shortened at the user's request on 2026-08-12. Variant D
+will first run a directional paired 20-example passage-count check drawn
+deterministically from the exact prior Scenario A/Variant C 100-example sample. It
+then runs baseline and combined dynamic PQ on 100 paired examples each from
+`hotpotqa`, `repobench-p`, `gov_report`, and `qasper`. The former five-dataset
+four-mode smoke and 13-dataset A100 mini are cancelled for this candidate; do not
+launch them. The 20-example result is descriptive rather than a formal advance gate.
 
 The detailed data rationale and proposed mixtures are in `training_plan.md`. The
 prior held-out/contaminated smoke milestone is archived in `STATUS.md` and
@@ -158,9 +160,11 @@ cluster, not just by prompt row.
 - [x] Extract Variant D and independently audit every local and Drive artifact.
 - [ ] Train isolated Variant D K/V codebooks and independently audit maps, groups,
   budgets, tables, LUTs, masks, reconstruction metrics, and Drive copies.
-- [ ] Run and audit the paired Scenario A passage-count evaluation.
-- [ ] If passage count passes, run and audit the five-dataset four-mode smoke.
-- [ ] If both gates pass, run and audit the prior 13-dataset A100 mini evaluation.
+- [ ] Run and audit the paired 20-example Scenario A-subset passage-count check.
+- [ ] Run and audit the targeted 100-example baseline/dynamic evaluation on HotpotQA,
+  RepoBench-P, GovReport, and Qasper.
+- [x] Cancel the former five-dataset four-mode smoke and 13-dataset mini for Variant D
+  at the user's request; do not spend that GPU time.
 - [ ] Record exact command IDs, return codes, scores, artifacts, and final decision
   in `STATUS.md`, this plan, and `LONGBENCH_E_RESULTS.md`.
 
